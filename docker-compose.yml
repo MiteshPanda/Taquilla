@@ -1,0 +1,2 @@
+# Services are added as they are built: postgres, api, payments-mock, sweeper, web.
+services: {}

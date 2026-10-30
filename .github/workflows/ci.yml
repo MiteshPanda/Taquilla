@@ -1,0 +1,11 @@
+# Placeholder until the real pipeline exists (NFR-12): migrations, tests, k6 smoke test, audit.
+name: CI
+
+on:
+  workflow_dispatch:
+
+jobs:
+  placeholder:
+    runs-on: ubuntu-latest
+    steps:
+      - run: echo "CI is not set up yet"
