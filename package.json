@@ -1,0 +1,16 @@
+{
+  "name": "taquilla",
+  "version": "0.0.0",
+  "private": true,
+  "description": "A match-ticket booking engine that can't double-sell, and proves it under load.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MiteshPanda/Taquilla.git"
+  },
+  "workspaces": [
+    "api",
+    "payments-mock",
+    "web"
+  ]
+}
