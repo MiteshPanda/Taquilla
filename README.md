@@ -216,7 +216,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | --- | --- | --- |
 | `DATABASE_URL` | `postgres://taquilla:taquilla@localhost:5432/taquilla` | Postgres connection |
 | `PORT` | `3000` | API port |
-| `JWT_SECRET` | none, required | Signs login tokens |
+| `JWT_SECRET` | none, required | Signs login tokens; at least 32 characters |
 | `BOOKING_STRATEGY` | `lock` | `lock`, `cas` or `serializable` |
 | `HOLD_SECONDS` | `300` | Hold length (tests use `2`) |
 | `SWEEP_INTERVAL_SECONDS` | `10` | How often the sweeper runs |
@@ -225,6 +225,9 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `LOST_RESPONSE_RATE` | `0.02` | Mock: share of first attempts whose response is lost |
 | `SEED_PASSWORD` | `taquilla-dev` | Password for seeded test fans (local only) |
 | `RACE_DELAY_MS` | `0` | Dev only: widens the naive race window |
+| `NODE_ENV` | `development` | `development`, `test` or `production` |
+| `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
 
 ## API
 

@@ -1,6 +1,6 @@
 # Taquilla: Requirements Specification
 
-**Version** 0.1 (draft) · **Date** 23 October 2026 · **Author** Mitesh Panda · **Status** In development
+**Version** 0.2 (draft) · **Date** 2 November 2026 · **Author** Mitesh Panda · **Status** In development
 
 The keywords **MUST**, **SHOULD** and **MAY** follow [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Requirement IDs are stable; reference them in tests, commits and pull requests.
 
@@ -227,6 +227,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | `409` | `PAYMENT_IN_PROGRESS` | The order is being paid under another key |
 | `409` | `REQUEST_IN_PROGRESS` | The same idempotency key is still being processed |
 | `422` | `IDEMPOTENCY_KEY_REUSED` | Same key, different request body |
+| `500` | `INTERNAL_ERROR` | An unexpected failure; the details are only in the logs |
 | `503` | `PAYMENT_UNAVAILABLE` | The provider was unreachable after retries; retry with the same key |
 
 ### 6.4 Database error mapping
@@ -279,7 +280,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | Package | Runtime dependencies | Dev dependencies |
 | --- | --- | --- |
 | Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, prettier, husky, lint-staged, @types/node |
-| `api` | express, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/pg, @types/jsonwebtoken, @types/supertest |
+| `api` | express, helmet, cors, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/cors, @types/pg, @types/jsonwebtoken, @types/supertest |
 | `payments-mock` | express, pg, pino | tsx |
 | `web` | react, react-dom | vite, @vitejs/plugin-react |
 | `loadtest` | k6, a standalone binary rather than an npm package | None |
@@ -294,7 +295,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | --- | --- | --- |
 | `DATABASE_URL` | `postgres://taquilla:taquilla@localhost:5432/taquilla` | Postgres connection |
 | `PORT` | `3000` | API port |
-| `JWT_SECRET` | None, required | Signs login tokens |
+| `JWT_SECRET` | None, required | Signs login tokens; at least 32 characters |
 | `BOOKING_STRATEGY` | `lock` | `lock`, `cas` or `serializable` |
 | `HOLD_SECONDS` | `300` | Hold length (tests use `2`) |
 | `SWEEP_INTERVAL_SECONDS` | `10` | How often the sweeper runs |
@@ -303,6 +304,9 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | `LOST_RESPONSE_RATE` | `0.02` | Mock: share of first attempts whose response is lost |
 | `SEED_PASSWORD` | `taquilla-dev` | Password for seeded test fans (local only) |
 | `RACE_DELAY_MS` | `0` | Dev only: widens the naive race window |
+| `NODE_ENV` | `development` | `development`, `test` or `production` |
+| `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
+| `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
 
 ## 9. Verification and acceptance
 
@@ -365,3 +369,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | Version | Date | Change |
 | --- | --- | --- |
 | 0.1 | 23 Oct 2026 | Initial draft |
+| 0.2 | 2 Nov 2026 | Added `INTERNAL_ERROR`, `NODE_ENV`, `LOG_LEVEL`, `CORS_ORIGINS` and the shared dev dependencies |
