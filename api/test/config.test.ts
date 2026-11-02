@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseConfig } from '../src/config.js';
+import { parseConfig, parseMigrateConfig } from '../src/config.js';
 
 const JWT_SECRET = 'a'.repeat(32);
 
@@ -74,5 +74,25 @@ describe('parseConfig', () => {
 
     expect(message).toContain('JWT_SECRET');
     expect(message).not.toContain('hunter2');
+  });
+});
+
+describe('parseMigrateConfig', () => {
+  it('needs no JWT_SECRET, and applies defaults', () => {
+    expect(parseMigrateConfig({})).toEqual({
+      NODE_ENV: 'development',
+      LOG_LEVEL: 'info',
+      DATABASE_URL: 'postgres://taquilla:taquilla@localhost:5432/taquilla',
+    });
+  });
+
+  it('treats a blank value as unset', () => {
+    expect(parseMigrateConfig({ NODE_ENV: '' }).NODE_ENV).toBe('development');
+  });
+
+  it('rejects a DATABASE_URL that is not Postgres', () => {
+    expect(() => parseMigrateConfig({ DATABASE_URL: 'mysql://localhost/x' })).toThrow(
+      /DATABASE_URL/,
+    );
   });
 });

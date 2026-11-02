@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "dev": "tsx watch --env-file-if-exists=../.env src/server.ts"
+    "dev": "tsx watch --env-file-if-exists=../.env src/server.ts",
+    "migrate": "tsx --env-file-if-exists=../.env src/migrate-cli.ts"
   },
   "dependencies": {
     "cors": "^2.8.6",

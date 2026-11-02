@@ -205,6 +205,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `npm run lint` | Run ESLint with type-checked rules; any warning fails |
 | `npm run format` | Format the code with Prettier (`npm run format:check` only checks it) |
 | `npm run typecheck` | Type-check every package with TypeScript in `strict` mode |
+| `npm run migrate` | Apply any migrations not yet applied; safe to run again |
 | `npm run reset` | Drop, migrate and seed a clean stadium |
 | `npm run tokens` | Write JWTs for the 1,000 test fans to `loadtest/tokens.json` |
 | `npm run sweeper` | Start the expiry sweeper |
@@ -228,6 +229,18 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `NODE_ENV` | `development` | `development`, `test` or `production` |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
+
+### Migrations
+
+`npm run migrate` applies the files in `api/migrations/` in number order, then the files in `api/migrations/dev/` unless `NODE_ENV=production`. It uses `DATABASE_URL` and `NODE_ENV`, and doesn't need `JWT_SECRET`. Each file runs once, in its own transaction, and is recorded in `schema_migrations`. If a file fails, it rolls back, the run stops there, and the command exits with code 1.
+
+**Never edit a migration that has been applied; add a new one.** The runner only checks a file's name, so an edit never reaches a database that already ran the file, and that database quietly drifts from everyone else's.
+
+To add a migration:
+
+- Name it with the next three-digit number, then lowercase words: `002_add_refunds.sql`.
+- Put tables that only exist for local demos in `dev/`, which has its own numbering. Main migrations must not depend on them, because production never has them.
+- Leave out `BEGIN` and `COMMIT`, because the runner already wraps the file in a transaction. For the same reason, statements that can't run in a transaction, such as `CREATE INDEX CONCURRENTLY`, will fail.
 
 ## API
 
@@ -372,8 +385,11 @@ The locking core stays the same.
 taquilla/
 ├── api/
 │   ├── migrations/          # numbered .sql files, applied in order
+│   │   └── dev/             # applied only outside production
 │   ├── src/
 │   │   ├── db.ts            # pool + withTransaction helper
+│   │   ├── migrate.ts       # migration runner
+│   │   ├── migrate-cli.ts   # npm run migrate
 │   │   ├── server.ts
 │   │   ├── auth/            # signup, login, JWT middleware
 │   │   ├── seats/           # seat map with lazy expiry
