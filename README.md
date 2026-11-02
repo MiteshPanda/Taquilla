@@ -322,6 +322,12 @@ npm test
   - A decline returns `402`; a retry with a new key can succeed
   - The hold expires and another fan takes the seat: `409`, no charge
 
+### Continuous integration
+
+Every push and pull request runs [the CI workflow](.github/workflows/ci.yml) against a Postgres 16 service container: `npm ci`, format check, lint, typecheck, migrate and test. A separate job runs `npm audit --audit-level=high`. Dependabot proposes npm and GitHub Actions updates every week.
+
+Changes reach `main` only through a pull request, and both jobs must pass on a branch that is up to date with `main`. Branch protection enforces this for everyone, including admins.
+
 ### Load tests
 
 | Scenario | What it does | Passes when |
@@ -403,7 +409,7 @@ taquilla/
 ├── web/                     # React + Vite seat map
 ├── loadtest/                # k6 scenarios
 ├── scripts/                 # reset, seed, tokens, audit
-├── .github/workflows/ci.yml
+├── .github/                 # CI workflow, Dependabot, pull request template
 ├── docker-compose.yml
 ├── .env.example
 └── requirements.md
