@@ -199,6 +199,10 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | --- | --- |
 | `npm run dev` | Start the API in watch mode |
 | `npm test` | Run the concurrency, race, expiry and checkout test suites |
+| `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout` and `idempotency` |
+| `npm run lint` | Run ESLint with type-checked rules; any warning fails |
+| `npm run format` | Format the code with Prettier (`npm run format:check` only checks it) |
+| `npm run typecheck` | Type-check every package with TypeScript in `strict` mode |
 | `npm run reset` | Drop, migrate and seed a clean stadium |
 | `npm run tokens` | Write JWTs for the 1,000 test fans to `loadtest/tokens.json` |
 | `npm run sweeper` | Start the expiry sweeper |
