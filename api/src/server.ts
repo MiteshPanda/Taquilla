@@ -1,11 +1,14 @@
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
+import { createDatabase } from './db.js';
+import { createHealthRouter } from './health/routes.js';
 import { createLogger } from './logger.js';
 import { createShutdown } from './shutdown.js';
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL);
-const app = createApp({ config, logger });
+const db = createDatabase({ connectionString: config.DATABASE_URL, logger });
+const app = createApp({ config, logger, routes: createHealthRouter(db) });
 
 const server = app.listen(config.PORT, (err) => {
   if (err) {
@@ -15,8 +18,7 @@ const server = app.listen(config.PORT, (err) => {
   logger.info({ port: config.PORT }, 'server listening');
 });
 
-// WP 0.5 adds the database pool to closers.
-const shutdown = createShutdown({ server, logger });
+const shutdown = createShutdown({ server, logger, closers: [() => db.close()] });
 
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {

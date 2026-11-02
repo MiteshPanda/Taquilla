@@ -15,7 +15,8 @@ export type ErrorCode =
   | 'REQUEST_IN_PROGRESS'
   | 'IDEMPOTENCY_KEY_REUSED'
   | 'INTERNAL_ERROR'
-  | 'PAYMENT_UNAVAILABLE';
+  | 'PAYMENT_UNAVAILABLE'
+  | 'DATABASE_UNAVAILABLE';
 
 export interface ErrorDetails {
   seatIds: number[];
@@ -27,8 +28,9 @@ export class AppError extends Error {
     readonly code: ErrorCode,
     message: string,
     readonly details?: ErrorDetails,
+    options?: ErrorOptions,
   ) {
-    super(message);
+    super(message, options);
     this.name = 'AppError';
   }
 }
