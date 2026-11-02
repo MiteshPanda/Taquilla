@@ -1,11 +1,53 @@
-# Placeholder until the real pipeline exists (NFR-12): migrations, tests, k6 smoke test, audit.
+# The k6 smoke test and the invariant audit that NFR-12 also asks for arrive in WP 8.2.
 name: CI
 
 on:
-  workflow_dispatch:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
-  placeholder:
+  test:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: taquilla
+          POSTGRES_PASSWORD: taquilla
+          POSTGRES_DB: taquilla_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -h 127.0.0.1 -U taquilla -d taquilla_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
-      - run: echo "CI is not set up yet"
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run migrate
+        env:
+          DATABASE_URL: postgres://taquilla:taquilla@localhost:5432/taquilla_test
+      - run: npm test
+
+  # Its own job, so a new advisory can't hide whether the code itself passes.
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+      - run: npm audit --audit-level=high
