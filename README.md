@@ -242,6 +242,12 @@ To add a migration:
 - Put tables that only exist for local demos in `dev/`, which has its own numbering. Main migrations must not depend on them, because production never has them.
 - Leave out `BEGIN` and `COMMIT`, because the runner already wraps the file in a transaction. For the same reason, statements that can't run in a transaction, such as `CREATE INDEX CONCURRENTLY`, will fail.
 
+### Resetting the database
+
+`npm run reset` deletes everything in the database at `DATABASE_URL`, applies the migrations, and seeds one match, 2,000 seats and 1,000 fans (`fan1@taquilla.test` to `fan1000@taquilla.test`, password from `SEED_PASSWORD`). Seats get the same ids every time, so seat 42 is always Lateral Este, row B, seat 17.
+
+It refuses to run when `NODE_ENV=production` or when the database host isn't `localhost`, `127.0.0.1` or `::1`. It can't see through an SSH tunnel, so never point a local address at a real database.
+
 ## API
 
 | Method | Path | Auth | What it does | Success | Errors |

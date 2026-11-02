@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseConfig, parseMigrateConfig } from '../src/config.js';
+import { parseConfig, parseMigrateConfig, parseResetConfig } from '../src/config.js';
 
 const JWT_SECRET = 'a'.repeat(32);
 
@@ -74,6 +74,21 @@ describe('parseConfig', () => {
 
     expect(message).toContain('JWT_SECRET');
     expect(message).not.toContain('hunter2');
+  });
+});
+
+describe('parseResetConfig', () => {
+  it('needs no JWT_SECRET, and applies defaults', () => {
+    expect(parseResetConfig({})).toEqual({
+      NODE_ENV: 'development',
+      LOG_LEVEL: 'info',
+      DATABASE_URL: 'postgres://taquilla:taquilla@localhost:5432/taquilla',
+      SEED_PASSWORD: 'taquilla-dev',
+    });
+  });
+
+  it('rejects a SEED_PASSWORD that is too short', () => {
+    expect(() => parseResetConfig({ SEED_PASSWORD: 'short' })).toThrow(/SEED_PASSWORD/);
   });
 });
 
