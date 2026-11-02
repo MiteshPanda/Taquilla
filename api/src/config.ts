@@ -32,17 +32,40 @@ const configSchema = z.object({
   RACE_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
 });
 
+// A migration job has no use for the API's secrets, so it must not need them to start.
+const migrateConfigSchema = configSchema.pick({
+  NODE_ENV: true,
+  LOG_LEVEL: true,
+  DATABASE_URL: true,
+});
+
 export type Config = z.infer<typeof configSchema>;
+export type MigrateConfig = z.infer<typeof migrateConfigSchema>;
+
+// A blank line in .env means "not set": the default applies, or a required variable fails.
+function withoutBlanks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
+}
 
 export function parseConfig(env: NodeJS.ProcessEnv): Config {
-  // A blank line in .env means "not set": the default applies, or a required variable fails.
-  const provided = Object.fromEntries(Object.entries(env).filter(([, value]) => value !== ''));
-  return configSchema.parse(provided);
+  return configSchema.parse(withoutBlanks(env));
+}
+
+export function parseMigrateConfig(env: NodeJS.ProcessEnv): MigrateConfig {
+  return migrateConfigSchema.parse(withoutBlanks(env));
 }
 
 export function loadConfig(): Config {
+  return loadOrExit(parseConfig);
+}
+
+export function loadMigrateConfig(): MigrateConfig {
+  return loadOrExit(parseMigrateConfig);
+}
+
+function loadOrExit<T>(parse: (env: NodeJS.ProcessEnv) => T): T {
   try {
-    return parseConfig(process.env);
+    return parse(process.env);
   } catch (err) {
     if (err instanceof z.ZodError) {
       console.error(`Invalid environment variables:\n${z.prettifyError(err)}`);
