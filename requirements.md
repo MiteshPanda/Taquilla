@@ -188,6 +188,8 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 
 | Method | Path | Auth | Idempotency-Key | Success | Possible errors |
 | --- | --- | --- | --- | --- | --- |
+| `GET` | `/health` | None | No | `200` | None |
+| `GET` | `/ready` | None | No | `200` | `503` |
 | `POST` | `/auth/signup` | None | No | `201` | `400`, `409` |
 | `POST` | `/auth/login` | None | No | `200` with `{ token }` | `400`, `401` |
 | `GET` | `/events/:id/seats` | None | No | `200` | `404` |
@@ -229,6 +231,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | `422` | `IDEMPOTENCY_KEY_REUSED` | Same key, different request body |
 | `500` | `INTERNAL_ERROR` | An unexpected failure; the details are only in the logs |
 | `503` | `PAYMENT_UNAVAILABLE` | The provider was unreachable after retries; retry with the same key |
+| `503` | `DATABASE_UNAVAILABLE` | `GET /ready` could not reach the database |
 
 ### 6.4 Database error mapping
 
@@ -369,4 +372,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | Version | Date | Change |
 | --- | --- | --- |
 | 0.1 | 23 Oct 2026 | Initial draft |
-| 0.2 | 2 Nov 2026 | Added `INTERNAL_ERROR`, `NODE_ENV`, `LOG_LEVEL`, `CORS_ORIGINS` and the shared dev dependencies |
+| 0.2 | 2 Nov 2026 | Added `INTERNAL_ERROR`, `DATABASE_UNAVAILABLE`, `/health`, `/ready`, `NODE_ENV`, `LOG_LEVEL`, `CORS_ORIGINS` and the shared dev dependencies |

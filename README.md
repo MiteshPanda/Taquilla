@@ -233,6 +233,8 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 
 | Method | Path | Auth | What it does | Success | Errors |
 | --- | --- | --- | --- | --- | --- |
+| `GET` | `/health` | None | The process is up | `200` | None |
+| `GET` | `/ready` | None | The database answers too | `200` | `503` |
 | `POST` | `/auth/signup` | None | Create an account | `201` | `400`, `409` |
 | `POST` | `/auth/login` | None | Get a JWT | `200` | `400`, `401` |
 | `GET` | `/events/:id/seats` | None | Seat map with live state | `200` | `404` |
@@ -292,6 +294,7 @@ The full list of error codes is in [requirements.md](requirements.md#63-error-co
 ### Test suite
 
 ```bash
+docker compose up -d postgres   # the tests run against the taquilla_test database
 npm test
 ```
 
