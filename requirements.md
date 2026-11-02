@@ -278,12 +278,13 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 
 | Package | Runtime dependencies | Dev dependencies |
 | --- | --- | --- |
-| `api` | express, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | typescript, tsx, vitest, supertest, @types/express, @types/pg, @types/jsonwebtoken, @types/supertest |
-| `payments-mock` | express, pg, pino | typescript, tsx |
-| `web` | react, react-dom | vite, @vitejs/plugin-react, typescript |
+| Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, prettier, husky, lint-staged, @types/node |
+| `api` | express, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/pg, @types/jsonwebtoken, @types/supertest |
+| `payments-mock` | express, pg, pino | tsx |
+| `web` | react, react-dom | vite, @vitejs/plugin-react |
 | `loadtest` | k6, a standalone binary rather than an npm package | None |
 
-Install the current stable versions and commit `package-lock.json`, so every install is reproducible.
+Install the current stable versions and commit `package-lock.json`, so every install is reproducible. TypeScript stays on 6.0 until typescript-eslint supports a newer major version.
 
 ### 8.4 Configuration
 
