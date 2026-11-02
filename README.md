@@ -311,6 +311,7 @@ docker compose up -d postgres   # the tests run against the taquilla_test databa
 npm test
 ```
 
+- **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
 - **Concurrency:** 100 parallel holds on one seat produce exactly one winner and 99 `409`s, for every strategy.
 - **Race:** the naive buy is marked `it.fails`, so it documents the bug without breaking CI.
 - **Expiry:** with `HOLD_SECONDS=2`, another fan can take a lapsed hold's seat, and the sweeper frees it.

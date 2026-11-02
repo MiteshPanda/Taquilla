@@ -6,11 +6,10 @@ import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
-import { DOWN_DATABASE_URL, TEST_DATABASE_URL } from './helpers/database.js';
+import { DOWN_DATABASE_URL, schemaConnectionString } from './helpers/database.js';
 
-// A schema of its own, so these tests can start empty without touching the real tables.
 const SCHEMA = 'migrate_probe';
-const CONNECTION_STRING = `${TEST_DATABASE_URL}?options=${encodeURIComponent(`-c search_path=${SCHEMA}`)}`;
+const CONNECTION_STRING = schemaConnectionString(SCHEMA);
 
 const logger = createLogger('silent');
 

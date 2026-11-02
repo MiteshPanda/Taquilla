@@ -247,7 +247,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | ID | Requirement |
 | --- | --- |
 | DR-1 | All tables MUST be created by numbered SQL migrations in `api/migrations/`. |
-| DR-2 | A seat MUST be `held` if and only if `hold_id` and `held_until` are both set, enforced by a CHECK constraint. |
+| DR-2 | A seat MUST be `held` if and only if `hold_id` and `held_until` are both set, and any other seat MUST have neither set, enforced by a CHECK constraint. |
 | DR-3 | `tickets` MUST have a partial unique index on `seat_id` where `status = 'valid'`. |
 | DR-4 | `orders.hold_id` MUST be unique. |
 | DR-5 | A hold MUST record its `seat_ids` and `amount_paise` when it is created. |
@@ -255,6 +255,8 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | DR-7 | Holds and orders MUST use UUID primary keys from `gen_random_uuid()`. |
 | DR-8 | Prices and amounts MUST be integers in paise. |
 | DR-9 | `payments.charges` MUST be keyed by idempotency key and MUST NOT be unique on `order_id`. |
+| DR-10 | A hold MUST cover 1 to 6 seats, and prices and amounts MUST be greater than zero, enforced by CHECK constraints. |
+| DR-11 | A `paying` order MUST have a `payment_key`, and a `done` idempotency key MUST have a saved response, enforced by CHECK constraints. |
 
 ## 8. Technical requirements
 
@@ -315,6 +317,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 
 | Requirement | Verified by | Passes when |
 | --- | --- | --- |
+| DR-2 to DR-8, DR-10, DR-11 | `api/test/schema.test.ts` | Postgres rejects every state these rules forbid |
 | FR-HOLD-4, FR-HOLD-5 | `api/test/concurrency.test.ts` | 100 parallel holds on one seat give 1 winner and 99 `409`s, for each strategy |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
 | FR-EXP-1 to FR-EXP-4 | `api/test/expiry.test.ts` with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan, and the sweeper frees it |
@@ -373,3 +376,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | --- | --- | --- |
 | 0.1 | 23 Oct 2026 | Initial draft |
 | 0.2 | 2 Nov 2026 | Added `INTERNAL_ERROR`, `DATABASE_UNAVAILABLE`, `/health`, `/ready`, `NODE_ENV`, `LOG_LEVEL`, `CORS_ORIGINS` and the shared dev dependencies |
+| 0.3 | 3 Nov 2026 | Tightened DR-2 so a half-set hold is rejected; added DR-10 and DR-11 |
