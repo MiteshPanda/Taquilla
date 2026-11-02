@@ -39,8 +39,16 @@ const migrateConfigSchema = configSchema.pick({
   DATABASE_URL: true,
 });
 
+const resetConfigSchema = configSchema.pick({
+  NODE_ENV: true,
+  LOG_LEVEL: true,
+  DATABASE_URL: true,
+  SEED_PASSWORD: true,
+});
+
 export type Config = z.infer<typeof configSchema>;
 export type MigrateConfig = z.infer<typeof migrateConfigSchema>;
+export type ResetConfig = z.infer<typeof resetConfigSchema>;
 
 // A blank line in .env means "not set": the default applies, or a required variable fails.
 function withoutBlanks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -55,12 +63,20 @@ export function parseMigrateConfig(env: NodeJS.ProcessEnv): MigrateConfig {
   return migrateConfigSchema.parse(withoutBlanks(env));
 }
 
+export function parseResetConfig(env: NodeJS.ProcessEnv): ResetConfig {
+  return resetConfigSchema.parse(withoutBlanks(env));
+}
+
 export function loadConfig(): Config {
   return loadOrExit(parseConfig);
 }
 
 export function loadMigrateConfig(): MigrateConfig {
   return loadOrExit(parseMigrateConfig);
+}
+
+export function loadResetConfig(): ResetConfig {
+  return loadOrExit(parseResetConfig);
 }
 
 function loadOrExit<T>(parse: (env: NodeJS.ProcessEnv) => T): T {

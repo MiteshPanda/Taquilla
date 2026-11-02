@@ -158,7 +158,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | --- | --- |
 | FR-DEV-1 | `POST /dev/buy-naive` MUST reproduce the check-then-act race for demos and benchmarks, and MUST be disabled when `NODE_ENV=production`. |
 | FR-DEV-2 | `RACE_DELAY_MS` (default 0) MUST widen the naive race window. |
-| FR-DEV-3 | `npm run reset` MUST migrate and seed a clean stadium. |
+| FR-DEV-3 | `npm run reset` MUST migrate and seed a clean stadium, and MUST refuse to run when `NODE_ENV=production` or the database host isn't local. |
 | FR-DEV-4 | `npm run tokens` MUST write JWTs for the 1,000 test fans to `loadtest/tokens.json`, which MUST be gitignored. |
 | FR-DEV-5 | The repo MUST include the k6 scenarios `hot-seat`, `sellout`, `double-click` and `churn`. |
 
@@ -318,6 +318,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | Requirement | Verified by | Passes when |
 | --- | --- | --- |
 | DR-2 to DR-8, DR-10, DR-11 | `api/test/schema.test.ts` | Postgres rejects every state these rules forbid |
+| FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats and 1,000 fans, and refuses production or a remote host |
 | FR-HOLD-4, FR-HOLD-5 | `api/test/concurrency.test.ts` | 100 parallel holds on one seat give 1 winner and 99 `409`s, for each strategy |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
 | FR-EXP-1 to FR-EXP-4 | `api/test/expiry.test.ts` with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan, and the sweeper frees it |
@@ -377,3 +378,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.1 | 23 Oct 2026 | Initial draft |
 | 0.2 | 2 Nov 2026 | Added `INTERNAL_ERROR`, `DATABASE_UNAVAILABLE`, `/health`, `/ready`, `NODE_ENV`, `LOG_LEVEL`, `CORS_ORIGINS` and the shared dev dependencies |
 | 0.3 | 3 Nov 2026 | Tightened DR-2 so a half-set hold is rejected; added DR-10 and DR-11 |
+| 0.4 | 3 Nov 2026 | Added the safety refusals to FR-DEV-3 |
