@@ -185,6 +185,8 @@ npm run reset                   # 1 match, 2,000 seats, 1,000 test fans
 
 Open the seat map at http://localhost:5173. The API listens on http://localhost:3000.
 
+To run only the database, use `docker compose up -d postgres`. It creates `taquilla` and `taquilla_test`, and listens on `127.0.0.1:5432`. The init script runs only on an empty volume, so `docker compose down -v` is how you start again from nothing; it deletes all local data.
+
 ### Reproduce the headline result
 
 ```bash
