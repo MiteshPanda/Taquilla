@@ -286,6 +286,18 @@ curl -s -X POST localhost:3000/holds/$HOLD_ID/checkout \
   -H "Idempotency-Key: $(uuidgen)"
 ```
 
+The seat map lists every seat in section, row and seat order, and is sent with `Cache-Control: no-store`. A seat whose hold has lapsed already reads `available`:
+
+```json
+{
+  "event": { "id": 1, "name": "Chamartín FC vs Castellana United", "startsAt": "…" },
+  "seats": [
+    { "id": 1001, "section": "Fondo Norte", "row": "A", "number": 1, "pricePaise": 250000, "state": "available" },
+    …
+  ]
+}
+```
+
 A successful hold returns `201`:
 
 ```json
@@ -320,6 +332,7 @@ docker compose up -d postgres   # the tests run against the taquilla_test databa
 npm test
 ```
 
+- **Seat map:** 2,000 seats in order, a lapsed hold reads `available`, a locked seat doesn't make the map wait, and unknown or malformed event ids get `404`.
 - **Auth:** sign-up, duplicate emails, wrong passwords, and expired, tampered and missing tokens are covered. So are the rate limit and equal timing for unknown emails.
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
 - **Concurrency:** 100 parallel holds on one seat produce exactly one winner and 99 `409`s, for every strategy.
