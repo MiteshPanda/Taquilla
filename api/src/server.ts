@@ -5,6 +5,7 @@ import { loadConfig } from './config.js';
 import { createDatabase } from './db.js';
 import { createHealthRouter } from './health/routes.js';
 import { createLogger } from './logger.js';
+import { createSeatsRouter } from './seats/routes.js';
 import { createShutdown } from './shutdown.js';
 
 const config = loadConfig();
@@ -13,6 +14,7 @@ const db = createDatabase({ connectionString: config.DATABASE_URL, logger });
 const routes = Router();
 routes.use(createHealthRouter(db));
 routes.use('/auth', createAuthRouter({ db, config }));
+routes.use(createSeatsRouter({ db }));
 const app = createApp({ config, logger, routes });
 
 const server = app.listen(config.PORT, (err) => {
