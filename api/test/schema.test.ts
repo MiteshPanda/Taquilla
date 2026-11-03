@@ -375,6 +375,16 @@ describe('users', () => {
   });
 });
 
+describe('users (lowercase emails)', () => {
+  it('rejects an email with capital letters, so the unique index stays case-blind', async () => {
+    await expectRejected(
+      run(`INSERT INTO users (email, password_hash) VALUES ('Fan2@taquilla.test', 'hash')`),
+      CHECK_VIOLATION,
+      'users_email_lowercase',
+    );
+  });
+});
+
 describe('idempotency keys', () => {
   function insertKey(userId: number): Promise<QueryResult> {
     return run(

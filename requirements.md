@@ -60,9 +60,11 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 
 | ID | Requirement |
 | --- | --- |
-| FR-AUTH-1 | A fan MUST be able to sign up with an email and password; only a bcrypt hash of the password is stored. |
+| FR-AUTH-1 | A fan MUST be able to sign up with an email and a password of at least 8 characters and at most 72 bytes; only a bcrypt hash (cost 12) of the password is stored, and the email is stored lowercase. |
 | FR-AUTH-2 | Login MUST return a signed JWT. Every booking endpoint MUST reject a missing or invalid token with `401`. |
 | FR-AUTH-3 | A fan MUST only see and act on their own holds and orders; anyone else's MUST return `404`. |
+| FR-AUTH-4 | Login MUST give a wrong password and an unknown email the same `401` in similar time. Tokens MUST be verified with HS256 only and MUST expire after `JWT_EXPIRES_IN`. |
+| FR-AUTH-5 | Each IP address MUST be limited to 10 requests a minute across `/auth/*`, answering `429 RATE_LIMITED` beyond that. |
 
 ### 4.2 Events and seat map
 
@@ -190,8 +192,8 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/health` | None | No | `200` | None |
 | `GET` | `/ready` | None | No | `200` | `503` |
-| `POST` | `/auth/signup` | None | No | `201` | `400`, `409` |
-| `POST` | `/auth/login` | None | No | `200` with `{ token }` | `400`, `401` |
+| `POST` | `/auth/signup` | None | No | `201` with `{ id, email }` | `400`, `409`, `429` |
+| `POST` | `/auth/login` | None | No | `200` with `{ token }` | `400`, `401`, `429` |
 | `GET` | `/events/:id/seats` | None | No | `200` | `404` |
 | `POST` | `/events/:id/holds` | JWT | Optional | `201` | `400`, `401`, `404`, `409`, `422` |
 | `DELETE` | `/holds/:id` | JWT | No | `204` | `401`, `404` |
@@ -229,6 +231,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | `409` | `PAYMENT_IN_PROGRESS` | The order is being paid under another key |
 | `409` | `REQUEST_IN_PROGRESS` | The same idempotency key is still being processed |
 | `422` | `IDEMPOTENCY_KEY_REUSED` | Same key, different request body |
+| `429` | `RATE_LIMITED` | Too many requests to `/auth/*` from one IP address |
 | `500` | `INTERNAL_ERROR` | An unexpected failure; the details are only in the logs |
 | `503` | `PAYMENT_UNAVAILABLE` | The provider was unreachable after retries; retry with the same key |
 | `503` | `DATABASE_UNAVAILABLE` | `GET /ready` could not reach the database |
@@ -257,6 +260,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | DR-9 | `payments.charges` MUST be keyed by idempotency key and MUST NOT be unique on `order_id`. |
 | DR-10 | A hold MUST cover 1 to 6 seats, and prices and amounts MUST be greater than zero, enforced by CHECK constraints. |
 | DR-11 | A `paying` order MUST have a `payment_key`, and a `done` idempotency key MUST have a saved response, enforced by CHECK constraints. |
+| DR-12 | `users.email` MUST be lowercase, enforced by a CHECK constraint, so the unique index ignores letter case. |
 
 ## 8. Technical requirements
 
@@ -285,7 +289,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | Package | Runtime dependencies | Dev dependencies |
 | --- | --- | --- |
 | Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, prettier, husky, lint-staged, @types/node |
-| `api` | express, helmet, cors, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/cors, @types/pg, @types/jsonwebtoken, @types/supertest |
+| `api` | express, helmet, cors, express-rate-limit, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/cors, @types/pg, @types/jsonwebtoken, @types/supertest |
 | `payments-mock` | express, pg, pino | tsx |
 | `web` | react, react-dom | vite, @vitejs/plugin-react |
 | `loadtest` | k6, a standalone binary rather than an npm package | None |
@@ -301,6 +305,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | `DATABASE_URL` | `postgres://taquilla:taquilla@localhost:5432/taquilla` | Postgres connection |
 | `PORT` | `3000` | API port |
 | `JWT_SECRET` | None, required | Signs login tokens; at least 32 characters |
+| `JWT_EXPIRES_IN` | `1h` | How long a login token lasts: a number and `s`, `m`, `h` or `d` |
 | `BOOKING_STRATEGY` | `lock` | `lock`, `cas` or `serializable` |
 | `HOLD_SECONDS` | `300` | Hold length (tests use `2`) |
 | `SWEEP_INTERVAL_SECONDS` | `10` | How often the sweeper runs |
@@ -317,7 +322,8 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 
 | Requirement | Verified by | Passes when |
 | --- | --- | --- |
-| DR-2 to DR-8, DR-10, DR-11 | `api/test/schema.test.ts` | Postgres rejects every state these rules forbid |
+| DR-2 to DR-8, DR-10 to DR-12 | `api/test/schema.test.ts` | Postgres rejects every state these rules forbid |
+| FR-AUTH-1, FR-AUTH-2, FR-AUTH-4, FR-AUTH-5 | `api/test/auth.test.ts` | Sign-up, login, every bad-token case and the rate limit behave as specified |
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats and 1,000 fans, and refuses production or a remote host |
 | FR-HOLD-4, FR-HOLD-5 | `api/test/concurrency.test.ts` | 100 parallel holds on one seat give 1 winner and 99 `409`s, for each strategy |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
@@ -379,3 +385,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.2 | 2 Nov 2026 | Added `INTERNAL_ERROR`, `DATABASE_UNAVAILABLE`, `/health`, `/ready`, `NODE_ENV`, `LOG_LEVEL`, `CORS_ORIGINS` and the shared dev dependencies |
 | 0.3 | 3 Nov 2026 | Tightened DR-2 so a half-set hold is rejected; added DR-10 and DR-11 |
 | 0.4 | 3 Nov 2026 | Added the safety refusals to FR-DEV-3 |
+| 0.5 | 3 Nov 2026 | Added password rules, FR-AUTH-4, FR-AUTH-5, `RATE_LIMITED`, DR-12, `JWT_EXPIRES_IN` and express-rate-limit |

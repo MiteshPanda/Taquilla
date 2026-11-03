@@ -1,8 +1,9 @@
 import { Client } from 'pg';
 import type { Logger } from 'pino';
+import { hashPassword } from '../api/src/auth/password.js';
 import { createDatabase } from '../api/src/db.js';
 import { runMigrations } from '../api/src/migrate.js';
-import { hashSeedPassword, seedStadium } from './seed.js';
+import { seedStadium } from './seed.js';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
 
@@ -35,7 +36,7 @@ export async function resetDatabase({
 }: ResetOptions): Promise<void> {
   assertSafeToReset({ connectionString, nodeEnv });
 
-  const passwordHash = await hashSeedPassword(seedPassword);
+  const passwordHash = await hashPassword(seedPassword);
   const db = createDatabase({ connectionString, logger, max: 1 });
   try {
     await db.withTransaction(async (client) => {

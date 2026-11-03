@@ -33,8 +33,9 @@ export function createApp({ config, logger, routes }: AppOptions): Express {
       },
       customLogLevel: (_req, res, err) => {
         if (err || res.err || res.statusCode >= 500) return 'error';
-        // A 409 is the expected answer when fans race for a seat.
-        return res.statusCode === 409 ? 'debug' : 'info';
+        // A 409 is the expected answer when fans race for a seat; a 429 may be someone guessing passwords.
+        if (res.statusCode === 409) return 'debug';
+        return res.statusCode === 429 ? 'warn' : 'info';
       },
     }),
   );
