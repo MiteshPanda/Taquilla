@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MAX_PASSWORD_BYTES } from './auth/password.js';
 
 const corsOrigins = z
   .string()
@@ -13,6 +14,15 @@ const corsOrigins = z
     ),
   );
 
+const SECONDS_PER_UNIT: Record<string, number> = { s: 1, m: 60, h: 3_600, d: 86_400 };
+
+// Written as a number and a unit, such as 15m or 1h, and parsed into seconds.
+const tokenLifetime = z
+  .string()
+  .regex(/^[1-9]\d*[smhd]$/, { error: 'must be a whole number and a unit, such as 15m or 1h' })
+  .default('1h')
+  .transform((value) => Number.parseInt(value, 10) * (SECONDS_PER_UNIT[value.slice(-1)] ?? 0));
+
 const configSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
@@ -22,13 +32,20 @@ const configSchema = z.object({
     .default('postgres://taquilla:taquilla@localhost:5432/taquilla'),
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   JWT_SECRET: z.string().min(32),
+  JWT_EXPIRES_IN: tokenLifetime,
   BOOKING_STRATEGY: z.enum(['lock', 'cas', 'serializable']).default('lock'),
   HOLD_SECONDS: z.coerce.number().int().positive().default(300),
   SWEEP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(10),
   PAYMENTS_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:4000'),
   DECLINE_RATE: z.coerce.number().min(0).max(1).default(0.05),
   LOST_RESPONSE_RATE: z.coerce.number().min(0).max(1).default(0.02),
-  SEED_PASSWORD: z.string().min(8).default('taquilla-dev'),
+  SEED_PASSWORD: z
+    .string()
+    .min(8)
+    .refine((value) => Buffer.byteLength(value, 'utf8') <= MAX_PASSWORD_BYTES, {
+      error: `must be at most ${MAX_PASSWORD_BYTES} bytes`,
+    })
+    .default('taquilla-dev'),
   RACE_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
 });
 

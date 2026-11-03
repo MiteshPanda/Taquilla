@@ -12,6 +12,7 @@ describe('parseConfig', () => {
       DATABASE_URL: 'postgres://taquilla:taquilla@localhost:5432/taquilla',
       PORT: 3000,
       JWT_SECRET,
+      JWT_EXPIRES_IN: 3600,
       BOOKING_STRATEGY: 'lock',
       HOLD_SECONDS: 300,
       SWEEP_INTERVAL_SECONDS: 10,
@@ -21,6 +22,15 @@ describe('parseConfig', () => {
       SEED_PASSWORD: 'taquilla-dev',
       RACE_DELAY_MS: 0,
     });
+  });
+
+  it.each([
+    ['30s', 30],
+    ['15m', 900],
+    ['1h', 3600],
+    ['7d', 604_800],
+  ])('reads JWT_EXPIRES_IN=%s as %i seconds', (value, seconds) => {
+    expect(parseConfig({ JWT_SECRET, JWT_EXPIRES_IN: value }).JWT_EXPIRES_IN).toBe(seconds);
   });
 
   it('converts numbers and splits CORS_ORIGINS', () => {
@@ -58,6 +68,10 @@ describe('parseConfig', () => {
     ['DATABASE_URL', 'mysql://localhost/taquilla'],
     ['PAYMENTS_URL', 'not a url'],
     ['SEED_PASSWORD', 'short'],
+    ['SEED_PASSWORD', 'é'.repeat(37)],
+    ['JWT_EXPIRES_IN', '1 hour'],
+    ['JWT_EXPIRES_IN', '0s'],
+    ['JWT_EXPIRES_IN', '3600'],
     ['CORS_ORIGINS', 'https://a.example/'],
     ['CORS_ORIGINS', '*'],
   ])('rejects %s=%s', (name, value) => {

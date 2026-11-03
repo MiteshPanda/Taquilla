@@ -218,6 +218,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `DATABASE_URL` | `postgres://taquilla:taquilla@localhost:5432/taquilla` | Postgres connection |
 | `PORT` | `3000` | API port |
 | `JWT_SECRET` | none, required | Signs login tokens; at least 32 characters |
+| `JWT_EXPIRES_IN` | `1h` | How long a login token lasts: a number and `s`, `m`, `h` or `d` |
 | `BOOKING_STRATEGY` | `lock` | `lock`, `cas` or `serializable` |
 | `HOLD_SECONDS` | `300` | Hold length (tests use `2`) |
 | `SWEEP_INTERVAL_SECONDS` | `10` | How often the sweeper runs |
@@ -254,13 +255,15 @@ It refuses to run when `NODE_ENV=production` or when the database host isn't `lo
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/health` | None | The process is up | `200` | None |
 | `GET` | `/ready` | None | The database answers too | `200` | `503` |
-| `POST` | `/auth/signup` | None | Create an account | `201` | `400`, `409` |
-| `POST` | `/auth/login` | None | Get a JWT | `200` | `400`, `401` |
+| `POST` | `/auth/signup` | None | Create an account | `201` | `400`, `409`, `429` |
+| `POST` | `/auth/login` | None | Get a JWT | `200` | `400`, `401`, `429` |
 | `GET` | `/events/:id/seats` | None | Seat map with live state | `200` | `404` |
 | `POST` | `/events/:id/holds` | JWT | Hold 1–6 seats, all or nothing; `Idempotency-Key` optional | `201` | `400`, `401`, `404`, `409`, `422` |
 | `DELETE` | `/holds/:id` | JWT | Release a hold early | `204` | `401`, `404` |
 | `POST` | `/holds/:id/checkout` | JWT | Reserve, charge, confirm; `Idempotency-Key` required | `200` | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
 | `GET` | `/orders/:id` | JWT | Order with its tickets | `200` | `401`, `404` |
+
+Send the token as `Authorization: Bearer <token>`. A password must be at least 8 characters and at most 72 bytes, and emails are stored lowercase. Each IP address can make 10 requests a minute to `/auth/*`; after that it gets `429`.
 
 Example session (needs `jq` and `uuidgen`):
 
@@ -317,6 +320,7 @@ docker compose up -d postgres   # the tests run against the taquilla_test databa
 npm test
 ```
 
+- **Auth:** sign-up, duplicate emails, wrong passwords, and expired, tampered and missing tokens are covered. So are the rate limit and equal timing for unknown emails.
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
 - **Concurrency:** 100 parallel holds on one seat produce exactly one winner and 99 `409`s, for every strategy.
 - **Race:** the naive buy is marked `it.fails`, so it documents the bug without breaking CI.

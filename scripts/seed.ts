@@ -1,12 +1,4 @@
-import bcrypt from 'bcryptjs';
 import type { PoolClient } from 'pg';
-
-// The cost signup will use, so seeded fans take as long to verify as real ones.
-const BCRYPT_COST = 12;
-
-export function hashSeedPassword(password: string): Promise<string> {
-  return bcrypt.hash(password, BCRYPT_COST);
-}
 
 // Takes one hash for every fan, because hashing 1,000 times at this cost would take minutes.
 export async function seedStadium(client: PoolClient, passwordHash: string): Promise<void> {
