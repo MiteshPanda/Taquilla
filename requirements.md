@@ -329,7 +329,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-HOLD-1 to FR-HOLD-3 | `api/test/holds.test.ts` | Free, taken, sold, lapsed and unknown seats give the specified result under each strategy |
 | FR-HOLD-7, §6.4 | `api/test/holds-route.test.ts` | `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and each Postgres code maps as §6.4 says |
 | FR-HOLD-5 | `api/test/strategy.test.ts` | The server exits with code 1 on an unknown strategy, and starts and logs its choice for each valid one |
-| FR-HOLD-4, FR-HOLD-5 | `api/test/concurrency.test.ts` | 100 parallel holds on one seat give 1 winner and 99 `409`s, for each strategy |
+| FR-HOLD-3, FR-HOLD-4, FR-HOLD-6 | `api/test/concurrency.test.ts` | For each strategy: 100 parallel holds on one seat give 1 winner and 99 `409`s; opposite-order multi-seat holds get no `5xx` (and no `SEAT_BUSY` under `lock`); a racing four-seat hold is all or nothing |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
 | FR-DEV-1, FR-DEV-2 | `api/test/naive.test.ts` | The naive buy works, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production` |
 | FR-EXP-1 to FR-EXP-4 | `api/test/expiry.test.ts` with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan, and the sweeper frees it |
@@ -396,3 +396,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.8 | 4 Nov 2026 | FR-HOLD-5: the strategy is chosen once at startup, and an unknown one stops the API |
 | 0.9 | 4 Nov 2026 | Added the verification row for FR-HOLD-1 to FR-HOLD-3 |
 | 0.10 | 4 Nov 2026 | Added the verification row for FR-HOLD-7 and the §6.4 error mapping |
+| 0.11 | 5 Nov 2026 | Widened the concurrency verification row to FR-HOLD-3 and FR-HOLD-6 |
