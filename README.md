@@ -129,7 +129,7 @@ Even if a future change skips the lock, Postgres refuses a second valid ticket f
 
 ### Three strategies, one guarantee
 
-Pick one with `BOOKING_STRATEGY`. All three pass the same concurrency tests.
+Pick one with `BOOKING_STRATEGY`. All three pass the same concurrency tests. The API reads it once at startup and logs the strategy it chose; an unknown value stops it from starting.
 
 | Strategy | How it works | Trade-off |
 | --- | --- | --- |

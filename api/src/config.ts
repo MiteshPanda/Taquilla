@@ -14,6 +14,10 @@ const corsOrigins = z
     ),
   );
 
+// The ways a hold can be made safe under contention (FR-HOLD-5). Shared so tests can run each one.
+export const BOOKING_STRATEGIES = ['lock', 'cas', 'serializable'] as const;
+export type BookingStrategy = (typeof BOOKING_STRATEGIES)[number];
+
 const SECONDS_PER_UNIT: Record<string, number> = { s: 1, m: 60, h: 3_600, d: 86_400 };
 
 // Written as a number and a unit, such as 15m or 1h, and parsed into seconds.
@@ -33,7 +37,7 @@ const configSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   JWT_SECRET: z.string().min(32),
   JWT_EXPIRES_IN: tokenLifetime,
-  BOOKING_STRATEGY: z.enum(['lock', 'cas', 'serializable']).default('lock'),
+  BOOKING_STRATEGY: z.enum(BOOKING_STRATEGIES).default('lock'),
   HOLD_SECONDS: z.coerce.number().int().positive().default(300),
   SWEEP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(10),
   PAYMENTS_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:4000'),
