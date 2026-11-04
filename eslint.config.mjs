@@ -19,5 +19,12 @@ export default defineConfig(
     files: ['**/*.{js,mjs,cjs}'],
     extends: [tseslint.configs.disableTypeChecked],
   },
+  {
+    // k6 runs these scripts and provides these globals; they never run in Node.
+    files: ['loadtest/**/*.js'],
+    languageOptions: {
+      globals: { __ENV: 'readonly', __VU: 'readonly', __ITER: 'readonly', open: 'readonly' },
+    },
+  },
   prettier,
 );
