@@ -8,6 +8,7 @@ import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
+import { createHoldStrategy } from '../src/holds/strategies.js';
 import { createRoutes } from '../src/routes.js';
 import { schemaConnectionString } from './helpers/database.js';
 
@@ -51,7 +52,11 @@ async function race(raceDelayMs: number): Promise<RaceResult> {
   const app = createApp({
     config: { CORS_ORIGINS: [] },
     logger,
-    routes: createRoutes({ db, config }),
+    routes: createRoutes({
+      db,
+      config,
+      holdStrategy: createHoldStrategy('lock', { db, holdSeconds: 300, logger }),
+    }),
   });
   const server = app.listen(0);
   await once(server, 'listening');

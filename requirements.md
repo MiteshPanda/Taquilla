@@ -327,6 +327,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-SEAT-1 to FR-SEAT-3 | `api/test/seats.test.ts` | 2,000 seats in order, a lapsed hold reads `available`, and a locked seat doesn't delay the map |
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats and 1,000 fans, and refuses production or a remote host |
 | FR-HOLD-1 to FR-HOLD-3 | `api/test/holds.test.ts` | Free, taken, sold, lapsed and unknown seats give the specified result under each strategy |
+| FR-HOLD-7, §6.4 | `api/test/holds-route.test.ts` | `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and each Postgres code maps as §6.4 says |
 | FR-HOLD-5 | `api/test/strategy.test.ts` | The server exits with code 1 on an unknown strategy, and starts and logs its choice for each valid one |
 | FR-HOLD-4, FR-HOLD-5 | `api/test/concurrency.test.ts` | 100 parallel holds on one seat give 1 winner and 99 `409`s, for each strategy |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
@@ -394,3 +395,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.7 | 4 Nov 2026 | Added the naive buy's response and errors to §6.1 |
 | 0.8 | 4 Nov 2026 | FR-HOLD-5: the strategy is chosen once at startup, and an unknown one stops the API |
 | 0.9 | 4 Nov 2026 | Added the verification row for FR-HOLD-1 to FR-HOLD-3 |
+| 0.10 | 4 Nov 2026 | Added the verification row for FR-HOLD-7 and the §6.4 error mapping |

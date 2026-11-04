@@ -8,6 +8,7 @@ import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
+import { createHoldStrategy } from '../src/holds/strategies.js';
 import { createRoutes } from '../src/routes.js';
 import { schemaConnectionString } from './helpers/database.js';
 
@@ -31,7 +32,15 @@ function app(overrides: Partial<Pick<Config, 'NODE_ENV' | 'RACE_DELAY_MS'>> = {}
     RACE_DELAY_MS: 0,
     ...overrides,
   };
-  return createApp({ config: { CORS_ORIGINS: [] }, logger, routes: createRoutes({ db, config }) });
+  return createApp({
+    config: { CORS_ORIGINS: [] },
+    logger,
+    routes: createRoutes({
+      db,
+      config,
+      holdStrategy: createHoldStrategy('lock', { db, holdSeconds: 300, logger }),
+    }),
+  });
 }
 
 function buy(body: object | undefined, overrides = {}) {
