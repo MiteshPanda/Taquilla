@@ -16,7 +16,7 @@ const holdStrategy = createHoldStrategy(config.BOOKING_STRATEGY, {
   logger,
 });
 logger.info({ strategy: holdStrategy.name }, 'booking strategy selected');
-const app = createApp({ config, logger, routes: createRoutes({ db, config }) });
+const app = createApp({ config, logger, routes: createRoutes({ db, config, holdStrategy }) });
 
 if (devRoutesEnabled(config.NODE_ENV)) {
   logger.warn(

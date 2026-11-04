@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
+import { DatabaseError } from 'pg';
 import { z } from 'zod';
 
 export type ErrorCode =
@@ -47,8 +48,50 @@ const CLIENT_ERROR_MESSAGES: Record<string, string> = {
   'entity.too.large': 'The request body is too large.',
 };
 
+const SEAT_BUSY_MESSAGE = 'Those seats are busy right now. Try again in a moment.';
+
+// The Postgres errors that mean contention rather than a bug, as requirements.md §6.4 maps them.
+// Anything else from Postgres is unexpected and stays a 500.
+export function mapDatabaseError(err: unknown): AppError | undefined {
+  if (!(err instanceof DatabaseError)) return undefined;
+
+  switch (err.code) {
+    // Serialization failure (after the serializable strategy's retries), deadlock, lock timeout.
+    case '40001':
+    case '40P01':
+    case '55P03':
+      return new AppError(409, 'SEAT_BUSY', SEAT_BUSY_MESSAGE, undefined, { cause: err });
+    case '23505':
+      return mapUniqueViolation(err);
+    default:
+      return undefined;
+  }
+}
+
+function mapUniqueViolation(err: DatabaseError): AppError | undefined {
+  if (err.constraint === 'one_valid_ticket_per_seat') {
+    // Postgres names the duplicate key, as in "Key (seat_id)=(42) already exists."
+    const seatId = Number(/\(seat_id\)=\((\d+)\)/.exec(err.detail ?? '')?.[1]);
+    return Number.isInteger(seatId)
+      ? new AppError(409, 'SEAT_TAKEN', `Seat ${seatId} was just taken. Pick another seat.`, {
+          seatIds: [seatId],
+        })
+      : new AppError(409, 'SEAT_TAKEN', 'A seat was just taken. Pick another seat.');
+  }
+  if (err.constraint === 'users_email_key') {
+    return new AppError(
+      409,
+      'EMAIL_TAKEN',
+      'An account with this email already exists. Log in instead.',
+    );
+  }
+  return undefined;
+}
+
 function toAppError(err: unknown): AppError | undefined {
   if (err instanceof AppError) return err;
+  const databaseError = mapDatabaseError(err);
+  if (databaseError) return databaseError;
   const clientError = clientErrorSchema.safeParse(err);
   if (!clientError.success) return undefined;
   const message = CLIENT_ERROR_MESSAGES[clientError.data.type ?? ''] ?? 'The request is invalid.';
