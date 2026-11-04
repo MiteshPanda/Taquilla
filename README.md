@@ -86,9 +86,16 @@ Every arrow is one database transaction. `SOLD` is final in v1.
 
 ### 1. The bug, kept on purpose
 
-`POST /dev/buy-naive` (dev only) checks the seat, then writes. Fire 100 parallel requests at seat 42 and it sells that seat **60 to 100 times** (median 85 over 20 runs). With `RACE_DELAY_MS=50` widening the gap, it sells it **100 times out of 100**, every run.
+`POST /dev/buy-naive` (dev only) checks the seat, then writes. Fire 100 parallel requests at seat 42 with `RACE_DELAY_MS=50` widening that gap, and it sells the seat **83 to 100 times**.
 
-Measured with `api/test/race.test.ts`: 100 parallel buyers, one request each, against the API's pool of 20 connections. The machine was an Intel Core i5-1135G7 (8 threads) with 8 GB of RAM, on battery power, running Windows 11 and PostgreSQL 16 in Docker. To see your own numbers, run `npx vitest run api/test/race.test.ts --silent=false`.
+Without the delay, the result depends on timing. On a laptop it sold seat 42 up to 100 times, but on GitHub's faster Linux runner each buy finished before the next one arrived, and it sold once. That is what makes this bug dangerous: it can pass every test on a fast machine and still oversell under real load.
+
+| Where | `RACE_DELAY_MS=0` | `RACE_DELAY_MS=50` |
+| --- | --- | --- |
+| Laptop, 20 runs | 60 to 100 times, median 85 | 100 times, every run |
+| GitHub Actions, 2 runs | Once, both runs | 83 and 90 times |
+
+Measured with `api/test/race.test.ts`: 100 parallel buyers, one request each, against the API's pool of 20 connections, with PostgreSQL 16. The laptop was an Intel Core i5-1135G7 (8 threads) with 8 GB of RAM, on battery power, running Windows 11 with Postgres in Docker. The CI runs used GitHub's `ubuntu-24.04` runner with a Postgres service container. To see your own numbers, run `npx vitest run api/test/race.test.ts --silent=false`.
 
 ```ts
 const { rows } = await pool.query('SELECT status FROM seats WHERE id = $1', [seatId]);
@@ -342,7 +349,7 @@ npm test
 - **Auth:** sign-up, duplicate emails, wrong passwords, and expired, tampered and missing tokens are covered. So are the rate limit and equal timing for unknown emails.
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
 - **Concurrency:** 100 parallel holds on one seat produce exactly one winner and 99 `409`s, for every strategy.
-- **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. The check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. A separate check makes sure the race itself ran cleanly, with no `5xx`.
+- **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. At 50, the check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. At 0 the count is only recorded, because whether the requests overlap depends on the machine. A separate check makes sure each race ran cleanly, with no `5xx`.
 - **Expiry:** with `HOLD_SECONDS=2`, another fan can take a lapsed hold's seat, and the sweeper frees it.
 - **Checkout and idempotency:**
   - Same key sent twice in parallel: one charge, identical responses

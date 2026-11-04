@@ -20,6 +20,10 @@ const CONNECTION_STRING = schemaConnectionString(SCHEMA);
 const JWT_SECRET = 'race-test-secret-at-least-32-characters';
 const SEAT_ID = 42;
 const BUYERS = 100;
+// Without a delay, whether the requests overlap depends on the machine: a laptop with Postgres in
+// Docker oversold 60 to 100 times, but GitHub's Linux runner finished each buy before the next one
+// arrived and sold the seat once. A 50 ms gap oversold on both, every run, so it carries the proof.
+const PROOF_DELAY_MS = 50;
 
 const logger = createLogger('silent');
 // One token per seeded fan, made up front so signing doesn't stagger the requests.
@@ -113,8 +117,10 @@ describe.each([0, 50])(
     });
 
     // INV-1: a seat has at most one valid ticket. The naive buy breaks it, which is the point.
-    it.fails('sells the seat to exactly one buyer', () => {
-      expect(result.tickets).toBe(1);
-    });
+    if (raceDelayMs === PROOF_DELAY_MS) {
+      it.fails('sells the seat to exactly one buyer', () => {
+        expect(result.tickets).toBe(1);
+      });
+    }
   },
 );
