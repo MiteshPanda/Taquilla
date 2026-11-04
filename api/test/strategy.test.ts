@@ -62,12 +62,12 @@ describe('createHoldStrategy', () => {
   const db = createDatabase({ connectionString: DOWN_DATABASE_URL, logger });
 
   it.each(BOOKING_STRATEGIES)('builds the %s strategy', (name) => {
-    expect(createHoldStrategy(name, { db, holdSeconds: 300 }).name).toBe(name);
+    expect(createHoldStrategy(name, { db, holdSeconds: 300, logger }).name).toBe(name);
   });
 
   it('throws for a name that config validation would have refused', () => {
     expect(() =>
-      createHoldStrategy('optimism' as BookingStrategy, { db, holdSeconds: 300 }),
+      createHoldStrategy('optimism' as BookingStrategy, { db, holdSeconds: 300, logger }),
     ).toThrow('Unknown booking strategy "optimism".');
   });
 });

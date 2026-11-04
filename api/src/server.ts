@@ -13,6 +13,7 @@ const db = createDatabase({ connectionString: config.DATABASE_URL, logger });
 const holdStrategy = createHoldStrategy(config.BOOKING_STRATEGY, {
   db,
   holdSeconds: config.HOLD_SECONDS,
+  logger,
 });
 logger.info({ strategy: holdStrategy.name }, 'booking strategy selected');
 const app = createApp({ config, logger, routes: createRoutes({ db, config }) });

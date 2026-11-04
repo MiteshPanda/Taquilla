@@ -1,7 +1,7 @@
 import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { seedStadium } from '../../scripts/seed.js';
-import type { BookingStrategy } from '../src/config.js';
+import { BOOKING_STRATEGIES } from '../src/config.js';
 import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';
 import { AppError } from '../src/errors.js';
@@ -11,8 +11,8 @@ import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { schemaConnectionString } from './helpers/database.js';
 
-// Every strategy must give the same answers (FR-HOLD-5). WP 3.3 adds cas and serializable here.
-const STRATEGIES: BookingStrategy[] = ['lock'];
+// Every strategy must give the same answers (FR-HOLD-5).
+const STRATEGIES = BOOKING_STRATEGIES;
 
 const SCHEMA = 'holds_probe';
 const CONNECTION_STRING = schemaConnectionString(SCHEMA);
@@ -107,7 +107,7 @@ describe.each(STRATEGIES)('the %s strategy', (name) => {
   }
 
   beforeAll(() => {
-    strategy = createHoldStrategy(name, { db, holdSeconds: HOLD_SECONDS });
+    strategy = createHoldStrategy(name, { db, holdSeconds: HOLD_SECONDS, logger });
   });
 
   describe('free seats', () => {

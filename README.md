@@ -135,7 +135,7 @@ Pick one with `BOOKING_STRATEGY`. All three pass the same concurrency tests. The
 | --- | --- | --- |
 | `lock` (default) | `SELECT … FOR UPDATE` in id order, check, then update | Easy to reason about; contenders queue on the row |
 | `cas` | One conditional `UPDATE` that only matches free seats; all-or-nothing | One statement, no read-then-write gap |
-| `serializable` | Naive check-then-act inside `SERIALIZABLE`, retried on error `40001` | Correct even with naive code; wastes work under contention |
+| `serializable` | Naive check-then-act inside `SERIALIZABLE`, retried up to 3 times on error `40001`, with exponential backoff and jitter | Correct even with naive code; wastes work under contention |
 
 ## Checkout without double charges
 

@@ -49,25 +49,35 @@ export function assertSeatsInEvent(requested: number[], found: SeatRow[]): void 
   }
 }
 
-// Records the hold and marks its seats held. Call it only once every seat is known to be free,
-// inside the same transaction that decided so.
-export async function writeHold(
+// Records the hold itself, with its seats in ascending order and their total price.
+export async function insertHold(
   client: PoolClient,
   { userId, eventId }: Omit<HoldRequest, 'seatIds'>,
   seats: SeatRow[],
-  holdSeconds: number,
-): Promise<Hold> {
+): Promise<Omit<Hold, 'expiresAt'>> {
   const seatIds = seats.map((seat) => seat.id).sort((a, b) => a - b);
   const amountPaise = seats.reduce((sum, seat) => sum + seat.price_paise, 0);
 
-  const { rows: holds } = await client.query<{ id: string }>(
+  const { rows } = await client.query<{ id: string }>(
     `INSERT INTO holds (user_id, event_id, seat_ids, amount_paise)
      VALUES ($1, $2, $3, $4)
      RETURNING id`,
     [userId, eventId, seatIds, amountPaise],
   );
-  const holdId = holds[0]?.id;
+  const holdId = rows[0]?.id;
   if (holdId === undefined) throw new Error('INSERT … RETURNING returned no row.');
+  return { holdId, seatIds, amountPaise };
+}
+
+// Records the hold and marks its seats held. Call it only once every seat is known to be free,
+// inside the same transaction that decided so.
+export async function writeHold(
+  client: PoolClient,
+  request: Omit<HoldRequest, 'seatIds'>,
+  seats: SeatRow[],
+  holdSeconds: number,
+): Promise<Hold> {
+  const { holdId, seatIds, amountPaise } = await insertHold(client, request, seats);
 
   // held_until comes back from Postgres, so the hold's expiry follows the database clock (DR-6).
   const { rows: held } = await client.query<{ held_until: Date }>(
