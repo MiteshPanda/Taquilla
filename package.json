@@ -37,7 +37,8 @@
     "test:coverage": "vitest run --coverage",
     "dev": "npm run dev --workspace=@taquilla/api",
     "migrate": "npm run migrate --workspace=@taquilla/api",
-    "reset": "npm run reset --workspace=@taquilla/api"
+    "reset": "npm run reset --workspace=@taquilla/api",
+    "tokens": "npm run tokens --workspace=@taquilla/api"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs}": [

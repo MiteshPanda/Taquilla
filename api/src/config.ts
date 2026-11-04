@@ -67,9 +67,19 @@ const resetConfigSchema = configSchema.pick({
   SEED_PASSWORD: true,
 });
 
+// Mints logins for the seeded fans, so it needs the secret and lifetime the API uses.
+const tokensConfigSchema = configSchema.pick({
+  NODE_ENV: true,
+  LOG_LEVEL: true,
+  DATABASE_URL: true,
+  JWT_SECRET: true,
+  JWT_EXPIRES_IN: true,
+});
+
 export type Config = z.infer<typeof configSchema>;
 export type MigrateConfig = z.infer<typeof migrateConfigSchema>;
 export type ResetConfig = z.infer<typeof resetConfigSchema>;
+export type TokensConfig = z.infer<typeof tokensConfigSchema>;
 
 // A blank line in .env means "not set": the default applies, or a required variable fails.
 function withoutBlanks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -88,6 +98,10 @@ export function parseResetConfig(env: NodeJS.ProcessEnv): ResetConfig {
   return resetConfigSchema.parse(withoutBlanks(env));
 }
 
+export function parseTokensConfig(env: NodeJS.ProcessEnv): TokensConfig {
+  return tokensConfigSchema.parse(withoutBlanks(env));
+}
+
 export function loadConfig(): Config {
   return loadOrExit(parseConfig);
 }
@@ -98,6 +112,10 @@ export function loadMigrateConfig(): MigrateConfig {
 
 export function loadResetConfig(): ResetConfig {
   return loadOrExit(parseResetConfig);
+}
+
+export function loadTokensConfig(): TokensConfig {
+  return loadOrExit(parseTokensConfig);
 }
 
 function loadOrExit<T>(parse: (env: NodeJS.ProcessEnv) => T): T {

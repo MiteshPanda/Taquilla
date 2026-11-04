@@ -161,7 +161,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | FR-DEV-1 | `POST /dev/buy-naive` MUST reproduce the check-then-act race for demos and benchmarks, and MUST be disabled when `NODE_ENV=production`. |
 | FR-DEV-2 | `RACE_DELAY_MS` (default 0) MUST widen the naive race window. |
 | FR-DEV-3 | `npm run reset` MUST migrate and seed a clean stadium, and MUST refuse to run when `NODE_ENV=production` or the database host isn't local. |
-| FR-DEV-4 | `npm run tokens` MUST write JWTs for the 1,000 test fans to `loadtest/tokens.json`, which MUST be gitignored. |
+| FR-DEV-4 | `npm run tokens` MUST write JWTs for the 1,000 test fans to `loadtest/tokens.json`, which MUST be gitignored, and MUST refuse to run when `NODE_ENV=production` or the database host isn't local. |
 | FR-DEV-5 | The repo MUST include the k6 scenarios `hot-seat`, `sellout`, `double-click` and `churn`. |
 
 ## 5. Non-functional requirements
@@ -325,6 +325,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | DR-2 to DR-8, DR-10 to DR-12 | `api/test/schema.test.ts` | Postgres rejects every state these rules forbid |
 | FR-AUTH-1, FR-AUTH-2, FR-AUTH-4, FR-AUTH-5 | `api/test/auth.test.ts` | Sign-up, login, every bad-token case and the rate limit behave as specified |
 | FR-SEAT-1 to FR-SEAT-3 | `api/test/seats.test.ts` | 2,000 seats in order, a lapsed hold reads `available`, and a locked seat doesn't delay the map |
+| FR-DEV-4 | `api/test/tokens.test.ts` | 1,000 tokens are written, one per seeded fan, and each one authenticates; production and remote hosts are refused |
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats and 1,000 fans, and refuses production or a remote host |
 | FR-HOLD-1 to FR-HOLD-3 | `api/test/holds.test.ts` | Free, taken, sold, lapsed and unknown seats give the specified result under each strategy |
 | FR-HOLD-7, §6.4 | `api/test/holds-route.test.ts` | `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and each Postgres code maps as §6.4 says |
@@ -397,3 +398,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.9 | 4 Nov 2026 | Added the verification row for FR-HOLD-1 to FR-HOLD-3 |
 | 0.10 | 4 Nov 2026 | Added the verification row for FR-HOLD-7 and the §6.4 error mapping |
 | 0.11 | 5 Nov 2026 | Widened the concurrency verification row to FR-HOLD-3 and FR-HOLD-6 |
+| 0.12 | 5 Nov 2026 | Added the safety refusals to FR-DEV-4 |

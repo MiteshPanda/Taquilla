@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { parseConfig, parseMigrateConfig, parseResetConfig } from '../src/config.js';
+import {
+  parseConfig,
+  parseMigrateConfig,
+  parseResetConfig,
+  parseTokensConfig,
+} from '../src/config.js';
 
 const JWT_SECRET = 'a'.repeat(32);
 
@@ -88,6 +93,22 @@ describe('parseConfig', () => {
 
     expect(message).toContain('JWT_SECRET');
     expect(message).not.toContain('hunter2');
+  });
+});
+
+describe('parseTokensConfig', () => {
+  it('needs JWT_SECRET, because it signs tokens the API must accept', () => {
+    expect(() => parseTokensConfig({})).toThrow(/JWT_SECRET/);
+  });
+
+  it('applies defaults, including the token lifetime', () => {
+    expect(parseTokensConfig({ JWT_SECRET })).toEqual({
+      NODE_ENV: 'development',
+      LOG_LEVEL: 'info',
+      DATABASE_URL: 'postgres://taquilla:taquilla@localhost:5432/taquilla',
+      JWT_SECRET,
+      JWT_EXPIRES_IN: 3600,
+    });
   });
 });
 
