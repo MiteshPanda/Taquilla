@@ -1,9 +1,11 @@
+import type { Logger } from 'pino';
 import type { BookingStrategy } from '../config.js';
 import type { Database } from '../db.js';
 
 export interface StrategyOptions {
   db: Pick<Database, 'pool' | 'withTransaction'>;
   holdSeconds: number;
+  logger: Logger;
 }
 
 export interface HoldRequest {
