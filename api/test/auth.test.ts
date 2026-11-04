@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApp } from '../src/app.js';
 import { requireAuth, userIdOf } from '../src/auth/middleware.js';
 import { BCRYPT_COST, DUMMY_HASH } from '../src/auth/password.js';
@@ -12,6 +12,10 @@ import type { Database } from '../src/db.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { schemaConnectionString } from './helpers/database.js';
+
+// One bcrypt hash at cost 12 takes about 0.3 s on a fast machine and 0.5 s or more on a laptop
+// running on battery, and some tests here need seven. The default 5 seconds is too tight for that.
+vi.setConfig({ testTimeout: 30_000 });
 
 const SCHEMA = 'auth_probe';
 const CONNECTION_STRING = schemaConnectionString(SCHEMA);
