@@ -1,21 +1,21 @@
-import { Router } from 'express';
 import { createApp } from './app.js';
-import { createAuthRouter } from './auth/routes.js';
 import { loadConfig } from './config.js';
 import { createDatabase } from './db.js';
-import { createHealthRouter } from './health/routes.js';
 import { createLogger } from './logger.js';
-import { createSeatsRouter } from './seats/routes.js';
+import { createRoutes, devRoutesEnabled } from './routes.js';
 import { createShutdown } from './shutdown.js';
 
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL);
 const db = createDatabase({ connectionString: config.DATABASE_URL, logger });
-const routes = Router();
-routes.use(createHealthRouter(db));
-routes.use('/auth', createAuthRouter({ db, config }));
-routes.use(createSeatsRouter({ db }));
-const app = createApp({ config, logger, routes });
+const app = createApp({ config, logger, routes: createRoutes({ db, config }) });
+
+if (devRoutesEnabled(config.NODE_ENV)) {
+  logger.warn(
+    { nodeEnv: config.NODE_ENV },
+    'dev routes are mounted, including the deliberately unsafe POST /dev/buy-naive',
+  );
+}
 
 const server = app.listen(config.PORT, (err) => {
   if (err) {
