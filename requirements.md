@@ -199,7 +199,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | `DELETE` | `/holds/:id` | JWT | No | `204` | `401`, `404` |
 | `POST` | `/holds/:id/checkout` | JWT | Required | `200` | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
 | `GET` | `/orders/:id` | JWT | No | `200` | `401`, `404` |
-| `POST` | `/dev/buy-naive` | JWT | No | `201` | Dev only; `404` in production |
+| `POST` | `/dev/buy-naive` | JWT | No | `201` with `{ ticketId, seatId }` | `400`, `401`, `404`, `409`; dev only, so `404` in production |
 
 ### 6.2 Error format
 
@@ -328,6 +328,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats and 1,000 fans, and refuses production or a remote host |
 | FR-HOLD-4, FR-HOLD-5 | `api/test/concurrency.test.ts` | 100 parallel holds on one seat give 1 winner and 99 `409`s, for each strategy |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
+| FR-DEV-1, FR-DEV-2 | `api/test/naive.test.ts` | The naive buy works, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production` |
 | FR-EXP-1 to FR-EXP-4 | `api/test/expiry.test.ts` with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan, and the sweeper frees it |
 | FR-IDEM-3 to FR-IDEM-6, FR-PAY-4 to FR-PAY-11 | `api/test/checkout.test.ts` | All six cases in 9.1 pass |
 | INV-1 to INV-4, NFR-1 | k6 `sellout`, then `npm run audit` | The audit exits with code 0 |
@@ -388,3 +389,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.4 | 3 Nov 2026 | Added the safety refusals to FR-DEV-3 |
 | 0.5 | 3 Nov 2026 | Added password rules, FR-AUTH-4, FR-AUTH-5, `RATE_LIMITED`, DR-12, `JWT_EXPIRES_IN` and express-rate-limit |
 | 0.6 | 3 Nov 2026 | Added the seat order and `Cache-Control: no-store` to FR-SEAT-1 |
+| 0.7 | 4 Nov 2026 | Added the naive buy's response and errors to §6.1 |

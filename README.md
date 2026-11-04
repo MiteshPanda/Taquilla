@@ -262,6 +262,9 @@ It refuses to run when `NODE_ENV=production` or when the database host isn't `lo
 | `DELETE` | `/holds/:id` | JWT | Release a hold early | `204` | `401`, `404` |
 | `POST` | `/holds/:id/checkout` | JWT | Reserve, charge, confirm; `Idempotency-Key` required | `200` | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
 | `GET` | `/orders/:id` | JWT | Order with its tickets | `200` | `401`, `404` |
+| `POST` | `/dev/buy-naive` | JWT | Dev only: the deliberately unsafe buy, `{ "seatId": 42 }` | `201` | `400`, `401`, `404`, `409` |
+
+`/dev/buy-naive` exists only when `NODE_ENV` isn't `production`; a production server answers `404` because the route isn't mounted at all, and its table, `naive_tickets`, comes from a dev-only migration. The server logs a warning at startup whenever the route is mounted.
 
 Send the token as `Authorization: Bearer <token>`. A password must be at least 8 characters and at most 72 bytes, and emails are stored lowercase. Each IP address can make 10 requests a minute to `/auth/*`; after that it gets `429`.
 
@@ -332,6 +335,7 @@ docker compose up -d postgres   # the tests run against the taquilla_test databa
 npm test
 ```
 
+- **Naive buy:** it sells a free seat and refuses a sold one when requests come one at a time, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production`.
 - **Seat map:** 2,000 seats in order, a lapsed hold reads `available`, a locked seat doesn't make the map wait, and unknown or malformed event ids get `404`.
 - **Auth:** sign-up, duplicate emails, wrong passwords, and expired, tampered and missing tokens are covered. So are the rate limit and equal timing for unknown emails.
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
