@@ -401,12 +401,19 @@ These numbers compare strategies on one laptop. They are not a production capaci
 
 ## Design decisions
 
-- **Postgres is the only source of truth.** No Redis locks: a lock outside the database can expire mid-request and let two writers collide anyway.
-- **Hand-written SQL, no ORM.** Every lock is visible in the code and easy to review.
+- **Postgres is the only source of truth.** No Redis locks: a lock outside the database can expire mid-request and let two writers collide anyway. ([ADR 1](docs/adr/0001-postgres-is-the-source-of-truth.md))
+- **Hand-written SQL, no ORM.** Every lock is visible in the code and easy to review. ([ADR 2](docs/adr/0002-hand-written-sql.md))
+- **One lock order.** Seats are always locked in ascending id order, so overlapping holds queue instead of deadlocking. ([ADR 3](docs/adr/0003-lock-ordering.md))
 - **Lazy expiry.** Queries treat `held_until < now()` as free, so correctness never waits for the sweeper.
 - **No locks across network calls.** Checkout is three short steps around the payment call, so a slow provider can't freeze a queue of fans.
 - **The database clock decides expiry.** Always `now()` in Postgres, never the API server's clock.
 - **Money is integer paise.** No floating point anywhere near a price.
+
+The longer reasoning, with the alternatives that were rejected, is in the [architecture decision records](docs/adr/):
+
+1. [Postgres is the source of truth](docs/adr/0001-postgres-is-the-source-of-truth.md)
+2. [Hand-written SQL, no ORM](docs/adr/0002-hand-written-sql.md)
+3. [Lock seats in ascending id order](docs/adr/0003-lock-ordering.md)
 
 ## Known limitations
 
@@ -448,6 +455,7 @@ taquilla/
 ├── web/                     # React + Vite seat map
 ├── loadtest/                # k6 scenarios
 ├── scripts/                 # reset, seed, tokens, audit
+├── docs/adr/                # architecture decision records
 ├── .github/                 # CI workflow, Dependabot, pull request template
 ├── docker-compose.yml
 ├── .env.example
