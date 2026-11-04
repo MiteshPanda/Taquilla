@@ -1,14 +1,9 @@
 import type { BookingStrategy } from '../config.js';
-import type { Database } from '../db.js';
-import type { HoldStrategy } from './strategy.js';
+import { createLockStrategy } from './lock.js';
+import type { HoldStrategy, StrategyOptions } from './strategy.js';
 
-export interface StrategyOptions {
-  db: Pick<Database, 'pool' | 'withTransaction'>;
-  holdSeconds: number;
-}
-
-// Placeholder until WP 3.2 (lock) and WP 3.3 (cas, serializable) build the real ones. No route
-// calls hold() yet; POST /events/:id/holds arrives in WP 3.4.
+// Placeholder until WP 3.3 builds cas and serializable. No route calls hold() yet;
+// POST /events/:id/holds arrives in WP 3.4.
 function notBuiltYet(name: BookingStrategy): () => HoldStrategy {
   return () => ({
     name,
@@ -18,7 +13,7 @@ function notBuiltYet(name: BookingStrategy): () => HoldStrategy {
 
 // A Record, so TypeScript fails the build if a strategy named in config has no implementation.
 const STRATEGIES: Record<BookingStrategy, (options: StrategyOptions) => HoldStrategy> = {
-  lock: notBuiltYet('lock'),
+  lock: createLockStrategy,
   cas: notBuiltYet('cas'),
   serializable: notBuiltYet('serializable'),
 };
