@@ -1,31 +1,18 @@
-import { Client } from 'pg';
 import type { Logger } from 'pino';
 import { hashPassword } from '../api/src/auth/password.js';
 import { createDatabase } from '../api/src/db.js';
 import { runMigrations } from '../api/src/migrate.js';
+import { assertLocalDevelopment } from './local-only.js';
+import type { LocalTarget } from './local-only.js';
 import { seedStadium } from './seed.js';
 
-const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '::1', '[::1]']);
-
-export interface ResetTarget {
-  connectionString: string;
-  nodeEnv: string;
-}
-
-export interface ResetOptions extends ResetTarget {
+export interface ResetOptions extends LocalTarget {
   seedPassword: string;
   logger: Logger;
 }
 
-export function assertSafeToReset({ connectionString, nodeEnv }: ResetTarget): void {
-  if (nodeEnv === 'production') {
-    throw new Error('Refusing to reset: NODE_ENV is production.');
-  }
-  // Ask pg rather than parse the URL, because a ?host= setting overrides the URL's host part.
-  const { host } = new Client({ connectionString });
-  if (!LOCAL_HOSTS.has(host)) {
-    throw new Error(`Refusing to reset: the database host ${host} is not local.`);
-  }
+export function assertSafeToReset(target: LocalTarget): void {
+  assertLocalDevelopment(target, 'reset');
 }
 
 export async function resetDatabase({

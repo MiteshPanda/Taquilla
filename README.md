@@ -258,6 +258,12 @@ To add a migration:
 
 It refuses to run when `NODE_ENV=production` or when the database host isn't `localhost`, `127.0.0.1` or `::1`. It can't see through an SSH tunnel, so never point a local address at a real database.
 
+### Load-test tokens
+
+`npm run tokens` signs a JWT for every seeded fan and writes them to `loadtest/tokens.json`, as `[{ "userId": 1, "token": "…" }, …]`, so each k6 virtual user can act as a different fan without logging in. It uses `JWT_SECRET`, so the API must run with the same secret, and the tokens expire after `JWT_EXPIRES_IN`, so write them again before a long run.
+
+The file is a login for every test fan, so it's gitignored. The command refuses to run in production or against a database that isn't local, for the same reasons as `npm run reset`.
+
 ## API
 
 | Method | Path | Auth | What it does | Success | Errors |
@@ -346,6 +352,7 @@ npm test
 
 - **Naive buy:** it sells a free seat and refuses a sold one when requests come one at a time, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production`.
 - **Seat map:** 2,000 seats in order, a lapsed hold reads `available`, a locked seat doesn't make the map wait, and unknown or malformed event ids get `404`.
+- **Tokens:** `npm run tokens` writes a token for each of the 1,000 seeded fans, and every one of them gets past `requireAuth`.
 - **Auth:** sign-up, duplicate emails, wrong passwords, and expired, tampered and missing tokens are covered. So are the rate limit and equal timing for unknown emails.
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.

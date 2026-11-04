@@ -276,7 +276,12 @@ describe.each(STRATEGIES)('the %s strategy', (name) => {
       const lost = results.filter((result) => result.status === 'rejected');
       expect(won).toHaveLength(1);
       expect(lost).toHaveLength(19);
-      for (const { reason } of lost) expect(reason).toMatchObject({ code: 'SEAT_TAKEN' });
+      // serializable may run out of retries and let Postgres's 40001 through, as its contract
+      // allows; the holds route answers that with 409 SEAT_BUSY. The others always say SEAT_TAKEN.
+      const allowed = name === 'serializable' ? ['SEAT_TAKEN', '40001'] : ['SEAT_TAKEN'];
+      for (const { reason } of lost) {
+        expect(allowed).toContain((reason as { code?: string }).code);
+      }
       expect(await holdCount()).toBe(1);
     });
 

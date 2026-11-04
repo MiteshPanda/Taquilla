@@ -1,5 +1,8 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { DatabaseError } from 'pg';
+// Adds res.err to Express's types. Imported here because this file sets it, so it type-checks
+// even when nothing else has loaded pino-http.
+import type {} from 'pino-http';
 import { z } from 'zod';
 
 export type ErrorCode =
