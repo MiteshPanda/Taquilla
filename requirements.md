@@ -170,7 +170,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | --- | --- | --- |
 | NFR-1 | Correctness | The audit MUST pass after the `sellout` scenario: [10,000] requests from [1,000] concurrent virtual users. |
 | NFR-2 | Correctness | The `hot-seat` scenario (10,000 requests for one seat) MUST produce exactly one successful hold. |
-| NFR-3 | Latency | p95 hold latency SHOULD stay under 500 ms during `hot-seat` on a developer laptop. This is a baseline to tune after the first run. |
+| NFR-3 | Latency | p95 hold latency SHOULD stay under 2,500 ms during `hot-seat` with 1,000 virtual users on a developer laptop. This is the measured baseline: every virtual user sends its next request as soon as the last one answers, so latency is about 1,000 divided by requests per second (1.8 to 2.2 s on an 8-thread laptop). WP 6.4 tunes it. |
 | NFR-4 | Reliability | Unexpected failures (`5xx` and timeouts) MUST stay below 0.1% of requests under load; `409` is an expected answer. |
 | NFR-5 | Fail fast | Every booking transaction MUST set `lock_timeout = '2s'`, so no request waits on a lock indefinitely. |
 | NFR-6 | Recovery | A crash or timeout mid-payment MUST NOT cause a double charge, and a retry with the same key MUST complete the order. |
@@ -336,7 +336,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-EXP-1 to FR-EXP-4 | `api/test/expiry.test.ts` with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan, and the sweeper frees it |
 | FR-IDEM-3 to FR-IDEM-6, FR-PAY-4 to FR-PAY-11 | `api/test/checkout.test.ts` | All six cases in 9.1 pass |
 | INV-1 to INV-4, NFR-1 | k6 `sellout`, then `npm run audit` | The audit exits with code 0 |
-| NFR-2 to NFR-4 | k6 `hot-seat` thresholds | `holds_won` count is 1, p95 is under 500 ms, failures are under 0.1% |
+| NFR-2 to NFR-4 | k6 `hot-seat` thresholds | `holds_won` count is 1, p95 is under 2,500 ms, failures are under 0.1% |
 | INV-2 | k6 `double-click`, then the audit | No order has two successful charges |
 | FR-EXP-2, INV-4 | k6 `churn`, then the audit | Expired seats are resold and the audit exits with code 0 |
 | NFR-12 | GitHub Actions | The workflow is green on every push |
@@ -399,3 +399,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.10 | 4 Nov 2026 | Added the verification row for FR-HOLD-7 and the §6.4 error mapping |
 | 0.11 | 5 Nov 2026 | Widened the concurrency verification row to FR-HOLD-3 and FR-HOLD-6 |
 | 0.12 | 5 Nov 2026 | Added the safety refusals to FR-DEV-4 |
+| 0.13 | 5 Nov 2026 | NFR-3: replaced the 500 ms placeholder with the measured 2,500 ms laptop baseline |

@@ -391,6 +391,8 @@ npm run audit
 
 `npm run audit` checks the four rules directly in SQL and exits with code 1 on any violation, so CI and load-test runs fail loudly.
 
+For `hot-seat`, start the API with the strategy you want (`BOOKING_STRATEGY`) and the same `JWT_SECRET` the tokens were signed with, and reset before every run, because seat 42 is gone after the first. `k6 run -e TARGET=naive loadtest/hot-seat.js` aims it at the unsafe dev route instead, where it fails on purpose. Its thresholds are exactly one winner, under 0.1% failures, and p95 under 2,500 ms, the laptop baseline in NFR-3. Each virtual user's first request is spread over the first second, because Windows client editions refuse most connections opened in the same instant.
+
 ## Benchmarks
 
 <!-- Fill in from your own runs. Reset the database before each one. -->
