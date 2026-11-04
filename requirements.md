@@ -83,7 +83,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | FR-HOLD-2 | Seat IDs that don't belong to the event MUST be rejected with `400`. |
 | FR-HOLD-3 | Holds MUST be all-or-nothing: if any requested seat isn't free, nothing is held and the response is `409 SEAT_TAKEN`, listing the unavailable seats. |
 | FR-HOLD-4 | When many fans request the same seat at once, exactly one hold MUST succeed and every other request MUST get `409`, never a `5xx`. |
-| FR-HOLD-5 | The strategy MUST be selectable with `BOOKING_STRATEGY` (`lock`, `cas` or `serializable`), and all three MUST satisfy FR-HOLD-4. |
+| FR-HOLD-5 | The strategy MUST be selectable with `BOOKING_STRATEGY` (`lock`, `cas` or `serializable`), and all three MUST satisfy FR-HOLD-4. It MUST be chosen once at startup, and an unknown value MUST stop the API from starting. |
 | FR-HOLD-6 | Multi-seat holds MUST lock seats in ascending ID order. |
 | FR-HOLD-7 | A successful hold MUST return `201` with `holdId`, `seatIds`, `amountPaise` and `expiresAt`. |
 | FR-HOLD-8 | A fan MUST be able to release their own active hold early with `DELETE /holds/:id`, which returns `204`. |
@@ -326,6 +326,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-AUTH-1, FR-AUTH-2, FR-AUTH-4, FR-AUTH-5 | `api/test/auth.test.ts` | Sign-up, login, every bad-token case and the rate limit behave as specified |
 | FR-SEAT-1 to FR-SEAT-3 | `api/test/seats.test.ts` | 2,000 seats in order, a lapsed hold reads `available`, and a locked seat doesn't delay the map |
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats and 1,000 fans, and refuses production or a remote host |
+| FR-HOLD-5 | `api/test/strategy.test.ts` | The server exits with code 1 on an unknown strategy, and starts and logs its choice for each valid one |
 | FR-HOLD-4, FR-HOLD-5 | `api/test/concurrency.test.ts` | 100 parallel holds on one seat give 1 winner and 99 `409`s, for each strategy |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
 | FR-DEV-1, FR-DEV-2 | `api/test/naive.test.ts` | The naive buy works, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production` |
@@ -390,3 +391,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.5 | 3 Nov 2026 | Added password rules, FR-AUTH-4, FR-AUTH-5, `RATE_LIMITED`, DR-12, `JWT_EXPIRES_IN` and express-rate-limit |
 | 0.6 | 3 Nov 2026 | Added the seat order and `Cache-Control: no-store` to FR-SEAT-1 |
 | 0.7 | 4 Nov 2026 | Added the naive buy's response and errors to §6.1 |
+| 0.8 | 4 Nov 2026 | FR-HOLD-5: the strategy is chosen once at startup, and an unknown one stops the API |

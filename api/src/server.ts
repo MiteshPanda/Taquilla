@@ -1,6 +1,7 @@
 import { createApp } from './app.js';
 import { loadConfig } from './config.js';
 import { createDatabase } from './db.js';
+import { createHoldStrategy } from './holds/strategies.js';
 import { createLogger } from './logger.js';
 import { createRoutes, devRoutesEnabled } from './routes.js';
 import { createShutdown } from './shutdown.js';
@@ -8,6 +9,12 @@ import { createShutdown } from './shutdown.js';
 const config = loadConfig();
 const logger = createLogger(config.LOG_LEVEL);
 const db = createDatabase({ connectionString: config.DATABASE_URL, logger });
+// Chosen once here, so every hold in this process uses the same strategy (FR-HOLD-5).
+const holdStrategy = createHoldStrategy(config.BOOKING_STRATEGY, {
+  db,
+  holdSeconds: config.HOLD_SECONDS,
+});
+logger.info({ strategy: holdStrategy.name }, 'booking strategy selected');
 const app = createApp({ config, logger, routes: createRoutes({ db, config }) });
 
 if (devRoutesEnabled(config.NODE_ENV)) {
