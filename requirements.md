@@ -335,7 +335,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
 | FR-DEV-1, FR-DEV-2 | `api/test/naive.test.ts` | The naive buy works, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production` |
 | FR-EXP-3 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, and the process stops with exit code 0 on `SIGTERM` |
-| FR-EXP-1 to FR-EXP-4 | `api/test/expiry.test.ts` with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan, and the sweeper frees it |
+| FR-EXP-1 to FR-EXP-4, INV-4 | `api/test/expiry.test.ts`, one test with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan before any sweep, a sweep never undoes a newer hold, and four sweepers at once free each seat exactly once |
 | FR-IDEM-3 to FR-IDEM-6, FR-PAY-4 to FR-PAY-11 | `api/test/checkout.test.ts` | All six cases in 9.1 pass |
 | INV-1 to INV-4, NFR-1 | k6 `sellout`, then `npm run audit` | The audit exits with code 0 |
 | NFR-2 to NFR-4 | k6 `hot-seat` thresholds | `holds_won` count is 1, p95 is under 2,500 ms, failures are under 0.1% |
@@ -404,3 +404,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.13 | 5 Nov 2026 | NFR-3: replaced the 500 ms placeholder with the measured 2,500 ms laptop baseline |
 | 0.14 | 5 Nov 2026 | FR-HOLD-8: what a release frees, and that repeating it is harmless |
 | 0.15 | 6 Nov 2026 | Added the verification row for the sweeper (FR-EXP-3) |
+| 0.16 | 6 Nov 2026 | Widened the expiry verification row to INV-4 |
