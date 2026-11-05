@@ -41,8 +41,6 @@ const configSchema = z.object({
   HOLD_SECONDS: z.coerce.number().int().positive().default(300),
   SWEEP_INTERVAL_SECONDS: z.coerce.number().int().positive().default(10),
   PAYMENTS_URL: z.url({ protocol: /^https?$/ }).default('http://localhost:4000'),
-  DECLINE_RATE: z.coerce.number().min(0).max(1).default(0.05),
-  LOST_RESPONSE_RATE: z.coerce.number().min(0).max(1).default(0.02),
   SEED_PASSWORD: z
     .string()
     .min(8)

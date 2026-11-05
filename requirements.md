@@ -135,7 +135,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | FR-MOCK-2 | `POST /charges` MUST be idempotent by key: a repeated key returns the original charge. |
 | FR-MOCK-3 | The provider MUST NOT deduplicate by order, so only Taquilla's own logic can prevent double charges. |
 | FR-MOCK-4 | `POST /charges/:key/refund` MUST mark the charge `refunded` and be safe to call twice. |
-| FR-MOCK-5 | Fault injection MUST be configurable: 100–800 ms random latency, `DECLINE_RATE` (default 0.05) and `LOST_RESPONSE_RATE` (default 0.02), applied to first attempts only. |
+| FR-MOCK-5 | Fault injection MUST be configurable: random latency between `LATENCY_MIN_MS` and `LATENCY_MAX_MS` (default 100–800 ms), `DECLINE_RATE` (default 0.05) and `LOST_RESPONSE_RATE` (default 0.02), applied to first attempts only. |
 
 ### 4.8 Audit
 
@@ -160,7 +160,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | --- | --- |
 | FR-DEV-1 | `POST /dev/buy-naive` MUST reproduce the check-then-act race for demos and benchmarks, and MUST be disabled when `NODE_ENV=production`. |
 | FR-DEV-2 | `RACE_DELAY_MS` (default 0) MUST widen the naive race window. |
-| FR-DEV-3 | `npm run reset` MUST migrate and seed a clean stadium, and MUST refuse to run when `NODE_ENV=production` or the database host isn't local. |
+| FR-DEV-3 | `npm run reset` MUST migrate and seed a clean stadium with no charges left in the `payments` schema, and MUST refuse to run when `NODE_ENV=production` or the database host isn't local. |
 | FR-DEV-4 | `npm run tokens` MUST write JWTs for the 1,000 test fans to `loadtest/tokens.json`, which MUST be gitignored, and MUST refuse to run when `NODE_ENV=production` or the database host isn't local. |
 | FR-DEV-5 | The repo MUST include the k6 scenarios `hot-seat`, `sellout`, `double-click` and `churn`. |
 
@@ -249,7 +249,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 
 | ID | Requirement |
 | --- | --- |
-| DR-1 | All tables MUST be created by numbered SQL migrations in `api/migrations/`. |
+| DR-1 | All tables MUST be created by numbered SQL migrations: the API's in `api/migrations/`, and the mock provider's in `payments-mock/migrations/`, applied in its `payments` schema. |
 | DR-2 | A seat MUST be `held` if and only if `hold_id` and `held_until` are both set, and any other seat MUST have neither set, enforced by a CHECK constraint. |
 | DR-3 | `tickets` MUST have a partial unique index on `seat_id` where `status = 'valid'`. |
 | DR-4 | `orders.hold_id` MUST be unique. |
@@ -290,7 +290,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | --- | --- | --- |
 | Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, prettier, husky, lint-staged, @types/node |
 | `api` | express, helmet, cors, express-rate-limit, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/cors, @types/pg, @types/jsonwebtoken, @types/supertest |
-| `payments-mock` | express, pg, pino | tsx |
+| `payments-mock` | express, pg, pino, pino-http, zod | tsx, @types/express, @types/pg |
 | `web` | react, react-dom | vite, @vitejs/plugin-react |
 | `loadtest` | k6, a standalone binary rather than an npm package | None |
 
@@ -312,6 +312,9 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | `PAYMENTS_URL` | `http://localhost:4000` | Mock provider address |
 | `DECLINE_RATE` | `0.05` | Mock: share of charges declined |
 | `LOST_RESPONSE_RATE` | `0.02` | Mock: share of first attempts whose response is lost |
+| `LATENCY_MIN_MS` | `100` | Mock: shortest delay added to a first attempt |
+| `LATENCY_MAX_MS` | `800` | Mock: longest delay added to a first attempt |
+| `PAYMENTS_PORT` | `4000` | Mock: its port, kept apart from the API's `PORT` because both read one `.env` |
 | `SEED_PASSWORD` | `taquilla-dev` | Password for seeded test fans (local only) |
 | `RACE_DELAY_MS` | `0` | Dev only: widens the naive race window |
 | `NODE_ENV` | `development` | `development`, `test` or `production` |
@@ -326,7 +329,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-AUTH-1, FR-AUTH-2, FR-AUTH-4, FR-AUTH-5 | `api/test/auth.test.ts` | Sign-up, login, every bad-token case and the rate limit behave as specified |
 | FR-SEAT-1 to FR-SEAT-3 | `api/test/seats.test.ts` | 2,000 seats in order, a lapsed hold reads `available`, and a locked seat doesn't delay the map |
 | FR-DEV-4 | `api/test/tokens.test.ts` | 1,000 tokens are written, one per seeded fan, and each one authenticates; production and remote hosts are refused |
-| FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats and 1,000 fans, and refuses production or a remote host |
+| FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats, 1,000 fans and no charges, and refuses production or a remote host |
 | FR-HOLD-1 to FR-HOLD-3 | `api/test/holds.test.ts` | Free, taken, sold, lapsed and unknown seats give the specified result under each strategy |
 | FR-HOLD-7, §6.4 | `api/test/holds-route.test.ts` | `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and each Postgres code maps as §6.4 says |
 | FR-HOLD-8, FR-AUTH-3 | `api/test/release.test.ts` | The owner frees the hold, a stranger gets `404`, and a repeated or simultaneous release changes nothing more |
@@ -336,6 +339,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-DEV-1, FR-DEV-2 | `api/test/naive.test.ts` | The naive buy works, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production` |
 | FR-EXP-3 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, and the process stops with exit code 0 on `SIGTERM` |
 | FR-EXP-1 to FR-EXP-4, INV-4 | `api/test/expiry.test.ts`, one test with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan before any sweep, a sweep never undoes a newer hold, and four sweepers at once free each seat exactly once |
+| FR-MOCK-1 to FR-MOCK-5, DR-9 | `payments-mock/test/*.test.ts` | A repeated key returns the original charge, also when 20 first attempts race; one order can be charged under two keys; a refund is safe to repeat; and every fault hits first attempts only |
 | FR-IDEM-3 to FR-IDEM-6, FR-PAY-4 to FR-PAY-11 | `api/test/checkout.test.ts` | All six cases in 9.1 pass |
 | INV-1 to INV-4, NFR-1 | k6 `sellout`, then `npm run audit` | The audit exits with code 0 |
 | NFR-2 to NFR-4 | k6 `hot-seat` thresholds | `holds_won` count is 1, p95 is under 2,500 ms, failures are under 0.1% |
@@ -405,3 +409,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.14 | 5 Nov 2026 | FR-HOLD-8: what a release frees, and that repeating it is harmless |
 | 0.15 | 6 Nov 2026 | Added the verification row for the sweeper (FR-EXP-3) |
 | 0.16 | 6 Nov 2026 | Widened the expiry verification row to INV-4 |
+| 0.17 | 6 Nov 2026 | The mock provider: its own migrations (DR-1), latency settings and `PAYMENTS_PORT`, its dependencies and verification row, and a reset that clears its charges (FR-DEV-3) |

@@ -44,7 +44,36 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
+  # The fake payment provider (FR-MOCK-1). Like the sweeper, it runs the source on the stock Node
+  # image until WP 8.1, and creates its own payments schema before it starts serving.
+  payments-mock:
+    image: node:26-slim
+    working_dir: /app
+    command: >-
+      sh -c "npm ci --ignore-scripts --no-audit --no-fund
+      && node --import tsx payments-mock/src/migrate-cli.ts
+      && exec node --import tsx payments-mock/src/server.ts"
+    environment:
+      DATABASE_URL: postgres://taquilla:taquilla@postgres:5432/taquilla
+      DECLINE_RATE: ${DECLINE_RATE:-0.05}
+      LOST_RESPONSE_RATE: ${LOST_RESPONSE_RATE:-0.02}
+      LATENCY_MIN_MS: ${LATENCY_MIN_MS:-100}
+      LATENCY_MAX_MS: ${LATENCY_MAX_MS:-800}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '127.0.0.1:4000:4000'
+    volumes:
+      - .:/app
+      - payments-node-modules:/app/node_modules
+      - payments-api-node-modules:/app/api/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres-data:
   sweeper-node-modules:
   sweeper-api-node-modules:
+  payments-node-modules:
+  payments-api-node-modules:
