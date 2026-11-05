@@ -365,7 +365,7 @@ npm test
 - **Release:** `DELETE /holds/:id` frees only the seats the hold still has, answers `404` for anyone else's hold, and is harmless to repeat, even twice at once.
 - **Concurrency:** through a real HTTP server, for every strategy: 100 parallel holds on one seat produce exactly one winner and 99 `409`s; overlapping multi-seat holds asked in opposite orders never get a `5xx`, and under `lock` never even wait long enough to get `SEAT_BUSY`; and a four-seat hold racing for its last seat is held whole or not at all. The suite passed 20 runs in a row.
 - **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. At 50, the check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. At 0 the count is only recorded, because whether the requests overlap depends on the machine. A separate check makes sure each race ran cleanly, with no `5xx`.
-- **Expiry:** with `HOLD_SECONDS=2`, another fan can take a lapsed hold's seat, and the sweeper frees it.
+- **Expiry:** end to end with `HOLD_SECONDS=2`, a hold lasts 2 seconds, then its seats show as free and another fan can take them before any sweep, and the sweeper frees the rest. Under every strategy, a lapsed seat goes to the next fan, and a sweep running at the same moment never undoes their new hold. One sweep frees the whole stadium's lapsed seats, and four sweepers at once free each seat exactly once.
 - **Checkout and idempotency:**
   - Same key sent twice in parallel: one charge, identical responses
   - Provider loses the response and the client retries: still one charge
