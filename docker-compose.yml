@@ -21,5 +21,30 @@ services:
       retries: 10
       start_period: 30s
 
+  # Frees lapsed holds every SWEEP_INTERVAL_SECONDS (FR-EXP-3). Until WP 8.1 builds real images,
+  # it runs the source on the stock Node image. Its Linux dependencies go into its own volumes,
+  # so the host's node_modules is never touched.
+  sweeper:
+    image: node:26-slim
+    working_dir: /app
+    # exec makes Node process 1, so `docker compose stop` reaches it as SIGTERM and it stops cleanly.
+    command: >-
+      sh -c "npm ci --ignore-scripts --no-audit --no-fund
+      && exec node --import tsx api/src/jobs/sweeper-cli.ts"
+    environment:
+      DATABASE_URL: postgres://taquilla:taquilla@postgres:5432/taquilla
+      SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-10}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - .:/app
+      - sweeper-node-modules:/app/node_modules
+      - sweeper-api-node-modules:/app/api/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   postgres-data:
+  sweeper-node-modules:
+  sweeper-api-node-modules:

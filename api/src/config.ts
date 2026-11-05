@@ -76,10 +76,18 @@ const tokensConfigSchema = configSchema.pick({
   JWT_EXPIRES_IN: true,
 });
 
+const sweeperConfigSchema = configSchema.pick({
+  NODE_ENV: true,
+  LOG_LEVEL: true,
+  DATABASE_URL: true,
+  SWEEP_INTERVAL_SECONDS: true,
+});
+
 export type Config = z.infer<typeof configSchema>;
 export type MigrateConfig = z.infer<typeof migrateConfigSchema>;
 export type ResetConfig = z.infer<typeof resetConfigSchema>;
 export type TokensConfig = z.infer<typeof tokensConfigSchema>;
+export type SweeperConfig = z.infer<typeof sweeperConfigSchema>;
 
 // A blank line in .env means "not set": the default applies, or a required variable fails.
 function withoutBlanks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -102,6 +110,10 @@ export function parseTokensConfig(env: NodeJS.ProcessEnv): TokensConfig {
   return tokensConfigSchema.parse(withoutBlanks(env));
 }
 
+export function parseSweeperConfig(env: NodeJS.ProcessEnv): SweeperConfig {
+  return sweeperConfigSchema.parse(withoutBlanks(env));
+}
+
 export function loadConfig(): Config {
   return loadOrExit(parseConfig);
 }
@@ -116,6 +128,10 @@ export function loadResetConfig(): ResetConfig {
 
 export function loadTokensConfig(): TokensConfig {
   return loadOrExit(parseTokensConfig);
+}
+
+export function loadSweeperConfig(): SweeperConfig {
+  return loadOrExit(parseSweeperConfig);
 }
 
 function loadOrExit<T>(parse: (env: NodeJS.ProcessEnv) => T): T {
