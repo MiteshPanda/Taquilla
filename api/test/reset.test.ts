@@ -167,8 +167,9 @@ describe('resetDatabase', { timeout: 30_000 }, () => {
     expect(await bcrypt.compare('another-password', hash)).toBe(false);
   });
 
-  it('records the migrations it applied', async () => {
+  it("records the migrations it applied, the payment mock's included", async () => {
     expect(await count(`schema_migrations WHERE name = '001_core.sql'`)).toBe(1);
+    expect(await count(`payments.schema_migrations WHERE name = '001_charges.sql'`)).toBe(1);
   });
 
   it('wipes everything and starts ids again on the next reset, within seconds', async () => {
@@ -178,6 +179,10 @@ describe('resetDatabase', { timeout: 30_000 }, () => {
     );
     await db.pool.query(`UPDATE seats SET status = 'sold' WHERE id = 42`);
     await db.pool.query('DELETE FROM seats WHERE id = 1');
+    await db.pool.query(
+      `INSERT INTO payments.charges (key, order_id, amount_paise, status)
+       VALUES ('pay:stale', gen_random_uuid(), 100, 'succeeded')`,
+    );
 
     const startedAt = performance.now();
     await reset();
@@ -189,6 +194,7 @@ describe('resetDatabase', { timeout: 30_000 }, () => {
     expect(await count(`seats WHERE status = 'available'`)).toBe(2_000);
     expect(await count('seats WHERE id = 1')).toBe(1);
     expect(await count('events WHERE id = 1')).toBe(1);
+    expect(await count('payments.charges')).toBe(0);
   });
 
   it('touches nothing when it refuses', async () => {

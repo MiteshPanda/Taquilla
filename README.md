@@ -196,6 +196,8 @@ Open the seat map at http://localhost:5173. The API listens on http://localhost:
 
 To run the expiry sweeper alongside it, use `docker compose up -d sweeper`, or `npm run sweeper` on the host. It needs a migrated database (`npm run reset`). In Docker, the first start installs its dependencies, which takes about a minute.
 
+To run the payment mock, use `docker compose up -d payments-mock`, which creates its `payments` schema and then listens on `127.0.0.1:4000`. On the host, run `npm run migrate` once, then `npm run payments`.
+
 To run only the database, use `docker compose up -d postgres`. It creates `taquilla` and `taquilla_test`, and listens on `127.0.0.1:5432`. The init script runs only on an empty volume, so `docker compose down -v` is how you start again from nothing; it deletes all local data.
 
 ### Reproduce the headline result
@@ -212,14 +214,15 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | --- | --- |
 | `npm run dev` | Start the API in watch mode |
 | `npm test` | Run the concurrency, race, expiry and checkout test suites |
-| `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout` and `idempotency` |
+| `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout`, `idempotency` and the payment mock's charge logic |
 | `npm run lint` | Run ESLint with type-checked rules; any warning fails |
 | `npm run format` | Format the code with Prettier (`npm run format:check` only checks it) |
 | `npm run typecheck` | Type-check every package with TypeScript in `strict` mode |
-| `npm run migrate` | Apply any migrations not yet applied; safe to run again |
-| `npm run reset` | Drop, migrate and seed a clean stadium |
+| `npm run migrate` | Apply any migrations not yet applied, the API's and then the payment mock's; safe to run again |
+| `npm run reset` | Drop, migrate and seed a clean stadium, and empty the payment mock's charges |
 | `npm run tokens` | Write JWTs for the 1,000 test fans to `loadtest/tokens.json` |
 | `npm run sweeper` | Start the expiry sweeper |
+| `npm run payments` | Start the payment mock in watch mode on `PAYMENTS_PORT` |
 | `npm run audit` | Check the four rules; exit code 1 on any violation |
 
 ### Configuration
@@ -234,8 +237,11 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `HOLD_SECONDS` | `300` | Hold length (tests use `2`) |
 | `SWEEP_INTERVAL_SECONDS` | `10` | How often the sweeper runs |
 | `PAYMENTS_URL` | `http://localhost:4000` | Mock provider address |
+| `PAYMENTS_PORT` | `4000` | Mock: its port (`PORT` is the API's) |
 | `DECLINE_RATE` | `0.05` | Mock: share of charges declined |
 | `LOST_RESPONSE_RATE` | `0.02` | Mock: share of first attempts whose response is lost |
+| `LATENCY_MIN_MS` | `100` | Mock: shortest delay added to a first attempt |
+| `LATENCY_MAX_MS` | `800` | Mock: longest delay added to a first attempt |
 | `SEED_PASSWORD` | `taquilla-dev` | Password for seeded test fans (local only) |
 | `RACE_DELAY_MS` | `0` | Dev only: widens the naive race window |
 | `NODE_ENV` | `development` | `development`, `test` or `production` |
@@ -254,9 +260,11 @@ To add a migration:
 - Put tables that only exist for local demos in `dev/`, which has its own numbering. Main migrations must not depend on them, because production never has them.
 - Leave out `BEGIN` and `COMMIT`, because the runner already wraps the file in a transaction. For the same reason, statements that can't run in a transaction, such as `CREATE INDEX CONCURRENTLY`, will fail.
 
+The payment mock keeps its own migrations in `payments-mock/migrations/`, with their own numbering. They run in the `payments` schema, which the runner creates if it's missing, and are recorded in `payments.schema_migrations`. The API's migrations never touch that schema, the same way a real provider's tables live outside your database.
+
 ### Resetting the database
 
-`npm run reset` deletes everything in the database at `DATABASE_URL`, applies the migrations, and seeds one match, 2,000 seats and 1,000 fans (`fan1@taquilla.test` to `fan1000@taquilla.test`, password from `SEED_PASSWORD`). Seats get the same ids every time, so seat 42 is always Lateral Este, row B, seat 17.
+`npm run reset` deletes everything in the database at `DATABASE_URL`, including the payment mock's charges, applies both sets of migrations, and seeds one match, 2,000 seats and 1,000 fans (`fan1@taquilla.test` to `fan1000@taquilla.test`, password from `SEED_PASSWORD`). Seats get the same ids every time, so seat 42 is always Lateral Este, row B, seat 17.
 
 It refuses to run when `NODE_ENV=production` or when the database host isn't `localhost`, `127.0.0.1` or `::1`. It can't see through an SSH tunnel, so never point a local address at a real database.
 
@@ -265,6 +273,26 @@ It refuses to run when `NODE_ENV=production` or when the database host isn't `lo
 `npm run tokens` signs a JWT for every seeded fan and writes them to `loadtest/tokens.json`, as `[{ "userId": 1, "token": "…" }, …]`, so each k6 virtual user can act as a different fan without logging in. It uses `JWT_SECRET`, so the API must run with the same secret, and the tokens expire after `JWT_EXPIRES_IN`, so write them again before a long run.
 
 The file is a login for every test fan, so it's gitignored. The command refuses to run in production or against a database that isn't local, for the same reasons as `npm run reset`.
+
+### Payment mock
+
+`payments-mock/` is a stand-in for a real payment provider, run as its own service on port 4000 (FR-MOCK-1). Only the API calls it.
+
+| Method | Path | What it does | Success | Errors |
+| --- | --- | --- | --- | --- |
+| `GET` | `/health` | The process is up | `200` | None |
+| `POST` | `/charges` | Charges `{ orderId, amountPaise }` under the `Idempotency-Key` header | `201` with a new charge, `200` with the original one for a repeated key | `400`, `422` for a repeated key with a different order or amount |
+| `POST` | `/charges/:key/refund` | Refunds a succeeded charge; calling it again returns the same refund | `200` | `404`, `409` for a declined charge |
+
+A charge's `status` is `succeeded`, `declined` or `refunded`; a decline still answers `201`, because it's a new charge that was declined.
+
+- **One charge per key (FR-MOCK-2).** A repeated key gets the original charge back, even when 20 first attempts arrive at once.
+- **No deduplication by order (FR-MOCK-3).** Two keys for one order make two charges, so only Taquilla's own logic can prevent a double charge.
+- **Faults on first attempts only (FR-MOCK-5).** A key's first attempt waits 100 to 800 ms, is declined at `DECLINE_RATE`, and at `LOST_RESPONSE_RATE` records the charge and then drops the connection without answering. A retry with the same key skips all three, so it always gets the charge back.
+
+```bash
+curl -X POST localhost:4000/charges   -H 'Content-Type: application/json'   -H 'Idempotency-Key: pay:11111111-2222-4333-8444-555555555555:attempt-1'   -d '{"orderId":"11111111-2222-4333-8444-555555555555","amountPaise":450000}'
+```
 
 ## API
 
@@ -362,6 +390,7 @@ npm test
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
 - **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`.
+- **Payment mock:** a repeated key returns the original charge, also when 20 first attempts race; one order can be charged twice under two keys; refunds are safe to repeat, also 10 at once; and each fault hits first attempts only, so the retry after a lost response gets back the one charge it made. Its migrations, settings and process are covered too.
 - **Release:** `DELETE /holds/:id` frees only the seats the hold still has, answers `404` for anyone else's hold, and is harmless to repeat, even twice at once.
 - **Concurrency:** through a real HTTP server, for every strategy: 100 parallel holds on one seat produce exactly one winner and 99 `409`s; overlapping multi-seat holds asked in opposite orders never get a `5xx`, and under `lock` never even wait long enough to get `SEAT_BUSY`; and a four-seat hold racing for its last seat is held whole or not at all. The suite passed 20 runs in a row.
 - **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. At 50, the check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. At 0 the count is only recorded, because whether the requests overlap depends on the machine. A separate check makes sure each race ran cleanly, with no `5xx`.
@@ -467,6 +496,13 @@ taquilla/
 │   │   └── dev/             # naive buy, dev only
 │   └── test/                # concurrency, race, expiry, checkout
 ├── payments-mock/           # fake provider with fault injection
+│   ├── migrations/          # its own numbered .sql files, applied in the payments schema
+│   ├── src/
+│   │   ├── routes.ts        # POST /charges and POST /charges/:key/refund
+│   │   ├── charges.ts       # the SQL: one charge per key
+│   │   ├── faults.ts        # latency, declines and lost responses
+│   │   └── server.ts        # npm run payments
+│   └── test/
 ├── web/                     # React + Vite seat map
 ├── loadtest/                # k6 scenarios
 ├── scripts/                 # reset, seed, tokens, audit

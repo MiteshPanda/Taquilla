@@ -23,8 +23,6 @@ describe('parseConfig', () => {
       HOLD_SECONDS: 300,
       SWEEP_INTERVAL_SECONDS: 10,
       PAYMENTS_URL: 'http://localhost:4000',
-      DECLINE_RATE: 0.05,
-      LOST_RESPONSE_RATE: 0.02,
       SEED_PASSWORD: 'taquilla-dev',
       RACE_DELAY_MS: 0,
     });
@@ -43,12 +41,12 @@ describe('parseConfig', () => {
     const config = parseConfig({
       JWT_SECRET,
       PORT: '8080',
-      DECLINE_RATE: '0',
+      HOLD_SECONDS: '2',
       CORS_ORIGINS: 'https://a.example, https://b.example:8443',
     });
 
     expect(config.PORT).toBe(8080);
-    expect(config.DECLINE_RATE).toBe(0);
+    expect(config.HOLD_SECONDS).toBe(2);
     expect(config.CORS_ORIGINS).toEqual(['https://a.example', 'https://b.example:8443']);
   });
 
@@ -68,8 +66,6 @@ describe('parseConfig', () => {
     ['HOLD_SECONDS', '0'],
     ['HOLD_SECONDS', '1.5'],
     ['SWEEP_INTERVAL_SECONDS', '-1'],
-    ['DECLINE_RATE', '1.5'],
-    ['LOST_RESPONSE_RATE', '-0.1'],
     ['RACE_DELAY_MS', '-1'],
     ['DATABASE_URL', 'mysql://localhost/taquilla'],
     ['PAYMENTS_URL', 'not a url'],

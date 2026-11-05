@@ -12,6 +12,8 @@ export default defineConfig({
         'api/src/holds/**': { lines: 80 },
         'api/src/checkout/**': { lines: 80 },
         'api/src/idempotency/**': { lines: 80 },
+        // The mock's entry points run in child processes, which coverage can't see.
+        'payments-mock/src/{app,charges,errors,faults,migrate,routes}.ts': { lines: 80 },
       },
     },
   },
