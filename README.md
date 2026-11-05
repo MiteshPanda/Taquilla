@@ -194,6 +194,8 @@ npm run reset                   # 1 match, 2,000 seats, 1,000 test fans
 
 Open the seat map at http://localhost:5173. The API listens on http://localhost:3000.
 
+To run the expiry sweeper alongside it, use `docker compose up -d sweeper`, or `npm run sweeper` on the host. It needs a migrated database (`npm run reset`). In Docker, the first start installs its dependencies, which takes about a minute.
+
 To run only the database, use `docker compose up -d postgres`. It creates `taquilla` and `taquilla_test`, and listens on `127.0.0.1:5432`. The init script runs only on an empty volume, so `docker compose down -v` is how you start again from nothing; it deletes all local data.
 
 ### Reproduce the headline result
@@ -359,6 +361,7 @@ npm test
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
+- **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`.
 - **Release:** `DELETE /holds/:id` frees only the seats the hold still has, answers `404` for anyone else's hold, and is harmless to repeat, even twice at once.
 - **Concurrency:** through a real HTTP server, for every strategy: 100 parallel holds on one seat produce exactly one winner and 99 `409`s; overlapping multi-seat holds asked in opposite orders never get a `5xx`, and under `lock` never even wait long enough to get `SEAT_BUSY`; and a four-seat hold racing for its last seat is held whole or not at all. The suite passed 20 runs in a row.
 - **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. At 50, the check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. At 0 the count is only recorded, because whether the requests overlap depends on the machine. A separate check makes sure each race ran cleanly, with no `5xx`.
@@ -460,7 +463,7 @@ taquilla/
 │   │   ├── holds/           # lock, cas and serializable strategies
 │   │   ├── checkout/        # reserve → charge → confirm
 │   │   ├── idempotency/     # Idempotency-Key middleware
-│   │   ├── jobs/sweeper.ts  # frees expired holds (own process)
+│   │   ├── jobs/            # sweeper.ts frees expired holds; sweeper-cli.ts runs it as its own process
 │   │   └── dev/             # naive buy, dev only
 │   └── test/                # concurrency, race, expiry, checkout
 ├── payments-mock/           # fake provider with fault injection

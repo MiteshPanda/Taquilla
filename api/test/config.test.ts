@@ -3,6 +3,7 @@ import {
   parseConfig,
   parseMigrateConfig,
   parseResetConfig,
+  parseSweeperConfig,
   parseTokensConfig,
 } from '../src/config.js';
 
@@ -93,6 +94,24 @@ describe('parseConfig', () => {
 
     expect(message).toContain('JWT_SECRET');
     expect(message).not.toContain('hunter2');
+  });
+});
+
+describe('parseSweeperConfig', () => {
+  it('needs no JWT_SECRET, and runs every 10 seconds by default', () => {
+    expect(parseSweeperConfig({})).toEqual({
+      NODE_ENV: 'development',
+      LOG_LEVEL: 'info',
+      DATABASE_URL: 'postgres://taquilla:taquilla@localhost:5432/taquilla',
+      SWEEP_INTERVAL_SECONDS: 10,
+    });
+  });
+
+  it('reads SWEEP_INTERVAL_SECONDS and rejects one that is not a positive whole number', () => {
+    expect(parseSweeperConfig({ SWEEP_INTERVAL_SECONDS: '3' }).SWEEP_INTERVAL_SECONDS).toBe(3);
+    expect(() => parseSweeperConfig({ SWEEP_INTERVAL_SECONDS: '0' })).toThrow(
+      /SWEEP_INTERVAL_SECONDS/,
+    );
   });
 });
 
