@@ -9,7 +9,7 @@ import type { HoldStrategy } from './holds/strategy.js';
 import { createSeatsRouter } from './seats/routes.js';
 
 export interface RoutesOptions {
-  db: Pick<Database, 'pool' | 'ping'>;
+  db: Pick<Database, 'pool' | 'ping' | 'withTransaction'>;
   config: Pick<Config, 'NODE_ENV' | 'JWT_SECRET' | 'JWT_EXPIRES_IN' | 'RACE_DELAY_MS'>;
   holdStrategy: HoldStrategy;
 }
@@ -25,7 +25,7 @@ export function createRoutes({ db, config, holdStrategy }: RoutesOptions): Route
   routes.use(createHealthRouter(db));
   routes.use('/auth', createAuthRouter({ db, config }));
   routes.use(createSeatsRouter({ db }));
-  routes.use(createHoldsRouter({ holdStrategy, config }));
+  routes.use(createHoldsRouter({ db, holdStrategy, config }));
   if (devRoutesEnabled(config.NODE_ENV)) {
     routes.use('/dev', createDevRouter({ db, config }));
   }

@@ -86,7 +86,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | FR-HOLD-5 | The strategy MUST be selectable with `BOOKING_STRATEGY` (`lock`, `cas` or `serializable`), and all three MUST satisfy FR-HOLD-4. It MUST be chosen once at startup, and an unknown value MUST stop the API from starting. |
 | FR-HOLD-6 | Multi-seat holds MUST lock seats in ascending ID order. |
 | FR-HOLD-7 | A successful hold MUST return `201` with `holdId`, `seatIds`, `amountPaise` and `expiresAt`. |
-| FR-HOLD-8 | A fan MUST be able to release their own active hold early with `DELETE /holds/:id`, which returns `204`. |
+| FR-HOLD-8 | A fan MUST be able to release their own active hold early with `DELETE /holds/:id`, which returns `204`. It MUST free only the seats still held by that hold, mark it `released` (a paid hold stays `converted`), and be harmless to repeat. |
 
 ### 4.4 Hold expiry
 
@@ -329,6 +329,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats and 1,000 fans, and refuses production or a remote host |
 | FR-HOLD-1 to FR-HOLD-3 | `api/test/holds.test.ts` | Free, taken, sold, lapsed and unknown seats give the specified result under each strategy |
 | FR-HOLD-7, §6.4 | `api/test/holds-route.test.ts` | `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and each Postgres code maps as §6.4 says |
+| FR-HOLD-8, FR-AUTH-3 | `api/test/release.test.ts` | The owner frees the hold, a stranger gets `404`, and a repeated or simultaneous release changes nothing more |
 | FR-HOLD-5 | `api/test/strategy.test.ts` | The server exits with code 1 on an unknown strategy, and starts and logs its choice for each valid one |
 | FR-HOLD-3, FR-HOLD-4, FR-HOLD-6 | `api/test/concurrency.test.ts` | For each strategy: 100 parallel holds on one seat give 1 winner and 99 `409`s; opposite-order multi-seat holds get no `5xx` (and no `SEAT_BUSY` under `lock`); a racing four-seat hold is all or nothing |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
@@ -400,3 +401,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.11 | 5 Nov 2026 | Widened the concurrency verification row to FR-HOLD-3 and FR-HOLD-6 |
 | 0.12 | 5 Nov 2026 | Added the safety refusals to FR-DEV-4 |
 | 0.13 | 5 Nov 2026 | NFR-3: replaced the 500 ms placeholder with the measured 2,500 ms laptop baseline |
+| 0.14 | 5 Nov 2026 | FR-HOLD-8: what a release frees, and that repeating it is harmless |

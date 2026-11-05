@@ -2,8 +2,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth, userIdOf } from '../auth/middleware.js';
 import type { Config } from '../config.js';
+import type { Database } from '../db.js';
 import { AppError } from '../errors.js';
 import { databaseId, MAX_INT, parseBody } from '../validation.js';
+import { releaseHold } from './release.js';
 import type { HoldStrategy } from './strategy.js';
 
 const SEATS_RULE = 'Send a JSON body with seatIds: a list of 1 to 6 seat ids.';
@@ -29,11 +31,12 @@ const holdSchema = z.object(
 );
 
 export interface HoldsRouterOptions {
+  db: Pick<Database, 'withTransaction'>;
   holdStrategy: HoldStrategy;
   config: Pick<Config, 'JWT_SECRET'>;
 }
 
-export function createHoldsRouter({ holdStrategy, config }: HoldsRouterOptions): Router {
+export function createHoldsRouter({ db, holdStrategy, config }: HoldsRouterOptions): Router {
   const router = Router();
 
   // Login first, so a request without a token learns nothing about what a valid body looks like.
@@ -47,6 +50,17 @@ export function createHoldsRouter({ holdStrategy, config }: HoldsRouterOptions):
 
     const hold = await holdStrategy.hold({ userId: userIdOf(req), eventId: eventId.data, seatIds });
     res.status(201).json(hold);
+  });
+
+  router.delete('/holds/:id', requireAuth(config.JWT_SECRET), async (req, res) => {
+    // A malformed id can't name a hold, so it gets the same 404 as an unknown one.
+    const holdId = z.uuid().safeParse(req.params.id);
+    if (!holdId.success) {
+      throw new AppError(404, 'NOT_FOUND', 'This hold does not exist.');
+    }
+
+    await releaseHold(db, { holdId: holdId.data, userId: userIdOf(req) });
+    res.status(204).end();
   });
 
   return router;
