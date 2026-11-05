@@ -279,6 +279,8 @@ The file is a login for every test fan, so it's gitignored. The command refuses 
 | `GET` | `/orders/:id` | JWT | Order with its tickets | `200` | `401`, `404` |
 | `POST` | `/dev/buy-naive` | JWT | Dev only: the deliberately unsafe buy, `{ "seatId": 42 }` | `201` | `400`, `401`, `404`, `409` |
 
+`DELETE /holds/:id` frees the seats the hold still has and marks it `released`. A seat another fan took after the hold lapsed stays theirs, and a paid hold stays as it is. Repeating it is harmless, and anyone else's hold gets the same `404` as one that doesn't exist.
+
 `/dev/buy-naive` exists only when `NODE_ENV` isn't `production`; a production server answers `404` because the route isn't mounted at all, and its table, `naive_tickets`, comes from a dev-only migration. The server logs a warning at startup whenever the route is mounted.
 
 Send the token as `Authorization: Bearer <token>`. A password must be at least 8 characters and at most 72 bytes, and emails are stored lowercase. Each IP address can make 10 requests a minute to `/auth/*`; after that it gets `429`.
@@ -357,6 +359,7 @@ npm test
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
+- **Release:** `DELETE /holds/:id` frees only the seats the hold still has, answers `404` for anyone else's hold, and is harmless to repeat, even twice at once.
 - **Concurrency:** through a real HTTP server, for every strategy: 100 parallel holds on one seat produce exactly one winner and 99 `409`s; overlapping multi-seat holds asked in opposite orders never get a `5xx`, and under `lock` never even wait long enough to get `SEAT_BUSY`; and a four-seat hold racing for its last seat is held whole or not at all. The suite passed 20 runs in a row.
 - **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. At 50, the check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. At 0 the count is only recorded, because whether the requests overlap depends on the machine. A separate check makes sure each race ran cleanly, with no `5xx`.
 - **Expiry:** with `HOLD_SECONDS=2`, another fan can take a lapsed hold's seat, and the sweeper frees it.
