@@ -157,7 +157,7 @@ sequenceDiagram
 
 - No row lock is held while the provider is called. Checkout is three short steps around the network call.
 - Each provider call gets 3 seconds and up to 3 retries, all with the same provider key, so a retry can never charge twice. Waits between attempts grow from up to 100 ms to up to 400 ms, at random, so retries don't all arrive together. A timeout, a dropped connection or a `5xx` is retried; a `4xx` means a bug, so it isn't.
-- Same key again: the saved response is replayed. Same key with a different body: `422`. Same key while the first request is still running: `409`.
+- Same key again: the saved response is replayed. Same key with a different body: `422`. Same key while the first request is still running: `409`. An answer that says "try again" (`5xx` or `SEAT_BUSY`) isn't saved, so the retry runs again.
 - If the server crashes mid-payment, a retry with the same key resumes at the charge step and gets the original result back.
 - If the seats were lost before confirmation, the charge is refunded and the fan gets `409`.
 
@@ -292,7 +292,10 @@ A charge's `status` is `succeeded`, `declined` or `refunded`; a decline still an
 - **Faults on first attempts only (FR-MOCK-5).** A key's first attempt waits 100 to 800 ms, is declined at `DECLINE_RATE`, and at `LOST_RESPONSE_RATE` records the charge and then drops the connection without answering. A retry with the same key skips all three, so it always gets the charge back.
 
 ```bash
-curl -X POST localhost:4000/charges   -H 'Content-Type: application/json'   -H 'Idempotency-Key: pay:11111111-2222-4333-8444-555555555555:attempt-1'   -d '{"orderId":"11111111-2222-4333-8444-555555555555","amountPaise":450000}'
+curl -X POST localhost:4000/charges \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: pay:11111111-2222-4333-8444-555555555555:attempt-1' \
+  -d '{"orderId":"11111111-2222-4333-8444-555555555555","amountPaise":450000}'
 ```
 
 ## API
@@ -311,6 +314,8 @@ curl -X POST localhost:4000/charges   -H 'Content-Type: application/json'   -H '
 | `POST` | `/dev/buy-naive` | JWT | Dev only: the deliberately unsafe buy, `{ "seatId": 42 }` | `201` | `400`, `401`, `404`, `409` |
 
 `DELETE /holds/:id` frees the seats the hold still has and marks it `released`. A seat another fan took after the hold lapsed stays theirs, and a paid hold stays as it is. Repeating it is harmless, and anyone else's hold gets the same `404` as one that doesn't exist.
+
+An `Idempotency-Key` is 1 to 128 visible ASCII characters, such as a UUID, and belongs to the fan who sent it. Sending a request again with the same key and the same body returns the first answer, status and body, without doing anything again, and marks it `Idempotent-Replayed: true`. The same key with a different body, or on another route, gets `422`; while the first request is still running, `409 REQUEST_IN_PROGRESS`. An answer that means "try again", any `5xx` or `409 SEAT_BUSY`, isn't saved, so a retry with the same key runs again. A key left running for over 60 seconds belongs to a request that died, and the next request with it takes over.
 
 `/dev/buy-naive` exists only when `NODE_ENV` isn't `production`; a production server answers `404` because the route isn't mounted at all, and its table, `naive_tickets`, comes from a dev-only migration. The server logs a warning at startup whenever the route is mounted.
 
@@ -391,6 +396,7 @@ npm test
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
 - **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`.
+- **Idempotency:** every branch of the middleware: a first run saved under the key, a replay that doesn't run again, the same body with its keys in another order, `422` for another body or route, `409` while the first is running, ten identical requests at once running once, a released key after a `5xx` or `SEAT_BUSY`, a saved `4xx`, missing and malformed keys, keys kept apart per fan, and a key stuck for 59 and 61 seconds. A stale request that finishes while a newer one holds its key neither saves its answer nor releases the key. Through `POST /events/:id/holds`, a retried hold returns the same hold and ten at once make one.
 - **Payment client:** against the real mock, a success, a decline, a lost first response and a provider slower than the timeout each end in exactly one charge. An unreachable provider is reported as unavailable after 1 attempt and 3 retries. Against a scripted provider, `5xx` answers are retried with the same key, body and request ID, an attempt that gets no answer or stalls halfway through is cut off, and a refusal or an unexpected body is thrown without retrying.
 - **Payment mock:** a repeated key returns the original charge, also when 20 first attempts race; one order can be charged twice under two keys; refunds are safe to repeat, also 10 at once; and each fault hits first attempts only, so the retry after a lost response gets back the one charge it made. Its migrations, settings and process are covered too.
 - **Release:** `DELETE /holds/:id` frees only the seats the hold still has, answers `404` for anyone else's hold, and is harmless to repeat, even twice at once.

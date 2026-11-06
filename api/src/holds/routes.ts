@@ -4,6 +4,7 @@ import { requireAuth, userIdOf } from '../auth/middleware.js';
 import type { Config } from '../config.js';
 import type { Database } from '../db.js';
 import { AppError } from '../errors.js';
+import { idempotency } from '../idempotency/middleware.js';
 import { databaseId, MAX_INT, parseBody } from '../validation.js';
 import { releaseHold } from './release.js';
 import type { HoldStrategy } from './strategy.js';
@@ -31,7 +32,7 @@ const holdSchema = z.object(
 );
 
 export interface HoldsRouterOptions {
-  db: Pick<Database, 'withTransaction'>;
+  db: Pick<Database, 'pool' | 'withTransaction'>;
   holdStrategy: HoldStrategy;
   config: Pick<Config, 'JWT_SECRET'>;
 }
@@ -40,17 +41,27 @@ export function createHoldsRouter({ db, holdStrategy, config }: HoldsRouterOptio
   const router = Router();
 
   // Login first, so a request without a token learns nothing about what a valid body looks like.
-  router.post('/events/:id/holds', requireAuth(config.JWT_SECRET), async (req, res) => {
-    // An id that can't name an event is an unknown event, as on the seat map.
-    const eventId = databaseId.safeParse(req.params.id);
-    if (!eventId.success) {
-      throw new AppError(404, 'NOT_FOUND', 'This event does not exist.');
-    }
-    const { seatIds } = parseBody(holdSchema, req.body);
+  // A key is optional here (FR-IDEM-1): with one, a retried hold returns the first one's answer.
+  router.post(
+    '/events/:id/holds',
+    requireAuth(config.JWT_SECRET),
+    idempotency({ db, required: false }),
+    async (req, res) => {
+      // An id that can't name an event is an unknown event, as on the seat map.
+      const eventId = databaseId.safeParse(req.params.id);
+      if (!eventId.success) {
+        throw new AppError(404, 'NOT_FOUND', 'This event does not exist.');
+      }
+      const { seatIds } = parseBody(holdSchema, req.body);
 
-    const hold = await holdStrategy.hold({ userId: userIdOf(req), eventId: eventId.data, seatIds });
-    res.status(201).json(hold);
-  });
+      const hold = await holdStrategy.hold({
+        userId: userIdOf(req),
+        eventId: eventId.data,
+        seatIds,
+      });
+      res.status(201).json(hold);
+    },
+  );
 
   router.delete('/holds/:id', requireAuth(config.JWT_SECRET), async (req, res) => {
     // A malformed id can't name a hold, so it gets the same 404 as an unknown one.

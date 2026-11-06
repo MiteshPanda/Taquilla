@@ -119,12 +119,12 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 
 | ID | Requirement |
 | --- | --- |
-| FR-IDEM-1 | `POST /events/:id/holds` MUST accept an optional `Idempotency-Key`; `POST /holds/:id/checkout` MUST require one. |
+| FR-IDEM-1 | `POST /events/:id/holds` MUST accept an optional `Idempotency-Key`; `POST /holds/:id/checkout` MUST require one. A key MUST be 1 to 128 visible ASCII characters. |
 | FR-IDEM-2 | Keys MUST be scoped per fan: the pair `(user_id, idem_key)` is unique. |
-| FR-IDEM-3 | A repeated key with the same body MUST replay the original status code and body without running the handler again. |
+| FR-IDEM-3 | A repeated key with the same body MUST replay the original status code and body without running the handler again, marked with `Idempotent-Replayed: true`. |
 | FR-IDEM-4 | A repeated key with a different body MUST respond `422 IDEMPOTENCY_KEY_REUSED`. |
 | FR-IDEM-5 | A repeated key while the first request is still running MUST respond `409 REQUEST_IN_PROGRESS`. |
-| FR-IDEM-6 | If the handler fails with a `5xx`, the key MUST be released so the client can retry. |
+| FR-IDEM-6 | If the handler fails with a `5xx`, or answers `409 SEAT_BUSY`, the key MUST be released so the client can retry. |
 | FR-IDEM-7 | A key left in progress for more than 60 seconds MAY be re-claimed by a new request. |
 
 ### 4.7 Mock payment provider
@@ -340,6 +340,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-EXP-3 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, and the process stops with exit code 0 on `SIGTERM` |
 | FR-EXP-1 to FR-EXP-4, INV-4 | `api/test/expiry.test.ts`, one test with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan before any sweep, a sweep never undoes a newer hold, and four sweepers at once free each seat exactly once |
 | FR-MOCK-1 to FR-MOCK-5, DR-9 | `payments-mock/test/*.test.ts` | A repeated key returns the original charge, also when 20 first attempts race; one order can be charged under two keys; a refund is safe to repeat; and every fault hits first attempts only |
+| FR-IDEM-1 to FR-IDEM-7, FR-PAY-1 | `api/test/idempotency.test.ts` | Every branch of the middleware, including ten identical requests at once running once and a stale request that finishes after its key was taken over |
 | FR-PAY-7, FR-PAY-12 (the client) | `api/test/payment-client.test.ts` | Every attempt uses one key and gets 3 seconds; a lost response or a slow provider still ends in one charge; an unreachable provider is reported as unavailable after 3 retries; a `4xx` is never retried |
 | FR-IDEM-3 to FR-IDEM-6, FR-PAY-4 to FR-PAY-11 | `api/test/checkout.test.ts` | All six cases in 9.1 pass |
 | INV-1 to INV-4, NFR-1 | k6 `sellout`, then `npm run audit` | The audit exits with code 0 |
@@ -412,3 +413,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.16 | 6 Nov 2026 | Widened the expiry verification row to INV-4 |
 | 0.17 | 6 Nov 2026 | The mock provider: its own migrations (DR-1), latency settings and `PAYMENTS_PORT`, its dependencies and verification row, and a reset that clears its charges (FR-DEV-3) |
 | 0.18 | 6 Nov 2026 | Added the verification row for the payment client (FR-PAY-7, FR-PAY-12) |
+| 0.19 | 6 Nov 2026 | Idempotency: the key format (FR-IDEM-1), the replay header (FR-IDEM-3), `SEAT_BUSY` also releases a key (FR-IDEM-6), and the verification row |

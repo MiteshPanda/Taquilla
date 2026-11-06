@@ -7,6 +7,7 @@ import type { Logger } from 'pino';
 import { pinoHttp } from 'pino-http';
 import type { Config } from './config.js';
 import { errorHandler, notFoundHandler } from './errors.js';
+import { REPLAYED_HEADER } from './idempotency/middleware.js';
 
 const REQUEST_ID_HEADER = 'X-Request-Id';
 const SAFE_REQUEST_ID = /^[\w-]{1,128}$/;
@@ -40,7 +41,9 @@ export function createApp({ config, logger, routes }: AppOptions): Express {
     }),
   );
   app.use(helmet());
-  app.use(cors({ origin: config.CORS_ORIGINS, exposedHeaders: [REQUEST_ID_HEADER] }));
+  app.use(
+    cors({ origin: config.CORS_ORIGINS, exposedHeaders: [REQUEST_ID_HEADER, REPLAYED_HEADER] }),
+  );
   app.use(express.json({ limit: '10kb' }));
 
   if (routes) app.use(routes);
