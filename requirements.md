@@ -141,8 +141,8 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 
 | ID | Requirement |
 | --- | --- |
-| FR-AUD-1 | `npm run audit` MUST run one SQL check per invariant (INV-1 to INV-4) and print a pass/fail table. |
-| FR-AUD-2 | The audit MUST exit with code 1 if any check fails, so it can gate CI and load-test runs. |
+| FR-AUD-1 | `npm run audit` MUST run one SQL check per invariant (INV-1 to INV-4), in one read-only snapshot, and print a pass/fail table. INV-3 MUST be compared order by order, not only in total. |
+| FR-AUD-2 | The audit MUST exit with code 1 if any check fails, so it can gate CI and load-test runs, and with code 2 if it cannot run. |
 
 ### 4.9 Web frontend
 
@@ -340,6 +340,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-EXP-3, FR-EXP-5 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, deletes idempotency keys older than 24 hours, and the process stops with exit code 0 on `SIGTERM` |
 | FR-EXP-1 to FR-EXP-4, INV-4 | `api/test/expiry.test.ts`, one test with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan before any sweep, a sweep never undoes a newer hold, and four sweepers at once free each seat exactly once |
 | FR-MOCK-1 to FR-MOCK-5, DR-9 | `payments-mock/test/*.test.ts` | A repeated key returns the original charge, also when 20 first attempts race; one order can be charged under two keys; a refund is safe to repeat; and every fault hits first attempts only |
+| FR-AUD-1, FR-AUD-2 | `api/test/audit.test.ts` | A healthy stadium passes; a planted violation of each rule fails exactly that rule (INV-2 also breaks INV-3); the command exits 0, 1 and 2 as specified |
 | FR-AUTH-3 (orders) | `api/test/orders.test.ts` | The owner sees their order with each ticket's seat, the same body the checkout answered; a stranger, an unknown id and a malformed id all get the same `404` |
 | FR-PAY-11, FR-PAY-12, NFR-6 | `api/test/checkout-recovery.test.ts` | A lost answer, a provider slower than every timeout, an outage and a crash each end, after a retry with the same key, in a completed order and exactly one charge |
 | FR-PAY-1, FR-PAY-3, FR-PAY-8 to FR-PAY-10 | `api/test/checkout-route.test.ts` | Through the real payment mock: one charge then one ticket per seat; no lock held while charging; a decline answers `402` and a new key pays; lost seats are refunded and the rest freed, also after a failed or unrecorded refund |
@@ -423,3 +424,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.22 | 6 Nov 2026 | Added the verification row for resume and outage paths (FR-PAY-11, FR-PAY-12, NFR-6) |
 | 0.23 | 6 Nov 2026 | `GET /orders/:id`'s body, which a paid checkout now shares, and its verification row |
 | 0.24 | 6 Nov 2026 | §9.1 case 1: a parallel duplicate gets `409` and retries with the same key; FR-WEB-3's retries; FR-EXP-5 in the sweeper's verification row |
+| 0.25 | 7 Nov 2026 | The audit: one snapshot and an order-by-order INV-3 (FR-AUD-1), exit code 2 (FR-AUD-2), and its verification row |

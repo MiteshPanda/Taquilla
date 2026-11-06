@@ -81,11 +81,15 @@ const sweeperConfigSchema = configSchema.pick({
   SWEEP_INTERVAL_SECONDS: true,
 });
 
+// The audit only reads, so it needs nothing but the database.
+const auditConfigSchema = configSchema.pick({ LOG_LEVEL: true, DATABASE_URL: true });
+
 export type Config = z.infer<typeof configSchema>;
 export type MigrateConfig = z.infer<typeof migrateConfigSchema>;
 export type ResetConfig = z.infer<typeof resetConfigSchema>;
 export type TokensConfig = z.infer<typeof tokensConfigSchema>;
 export type SweeperConfig = z.infer<typeof sweeperConfigSchema>;
+export type AuditConfig = z.infer<typeof auditConfigSchema>;
 
 // A blank line in .env means "not set": the default applies, or a required variable fails.
 function withoutBlanks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
@@ -112,6 +116,10 @@ export function parseSweeperConfig(env: NodeJS.ProcessEnv): SweeperConfig {
   return sweeperConfigSchema.parse(withoutBlanks(env));
 }
 
+export function parseAuditConfig(env: NodeJS.ProcessEnv): AuditConfig {
+  return auditConfigSchema.parse(withoutBlanks(env));
+}
+
 export function loadConfig(): Config {
   return loadOrExit(parseConfig);
 }
@@ -130,6 +138,10 @@ export function loadTokensConfig(): TokensConfig {
 
 export function loadSweeperConfig(): SweeperConfig {
   return loadOrExit(parseSweeperConfig);
+}
+
+export function loadAuditConfig(): AuditConfig {
+  return loadOrExit(parseAuditConfig);
 }
 
 function loadOrExit<T>(parse: (env: NodeJS.ProcessEnv) => T): T {

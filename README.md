@@ -228,7 +228,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `npm run tokens` | Write JWTs for the 1,000 test fans to `loadtest/tokens.json` |
 | `npm run sweeper` | Start the expiry sweeper |
 | `npm run payments` | Start the payment mock in watch mode on `PAYMENTS_PORT` |
-| `npm run audit` | Check the four rules; exit code 1 on any violation |
+| `npm run audit` | Check the four rules in SQL and print a pass/fail table; exit code 1 if one is broken, 2 if it can't run |
 
 ### Configuration
 
@@ -418,6 +418,12 @@ npm test
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
 - **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`. Each run also deletes idempotency keys older than 24 hours, finished or stuck, in batches, stepping past a key a request has locked.
+- **Audit:** it passes on a healthy stadium with sales, a declined then paid order, a refund, a cancelled ticket and live holds. Each planted violation fails its own rule:
+  - **INV-1:** a second valid ticket for a seat, planted after dropping the unique index that would refuse it.
+  - **INV-2:** an order charged twice.
+  - **INV-3:** a paid order with no charge, money taken for an unpaid order, and both at once with matching totals.
+  - **INV-4:** a seat held 31 seconds past expiry. 29 seconds still passes.
+  - **The real command** exits 0 on a freshly reset stadium, 1 with a rule broken, and 2 with the database down.
 - **Orders:** the owner sees their paid order with each ticket's seat, exactly as the checkout answered it; an unpaid order has no tickets, and only valid tickets are listed. Another fan's order gets the same `404` as an unknown one, a malformed id gets `404`, and no login gets `401`.
 - **Checkout recovery:** the provider is cut off mid-payment, and the fan retries with the same key. A lost answer is retried inside the request. With no retry left, the request ends in `503`, and the same key completes the order with the charge the first attempt made. A provider that stalls past every timeout still charges once; its decline comes back as `402`, and lost seats are refunded. When the provider is down and comes back, the same key pays once and another key gets `409`. A retry during the first request gets `409 REQUEST_IN_PROGRESS`. After a crash, the key is taken over at 60 seconds and the order completes; a crash after Confirm returns the paid order. Every case ends with exactly one charge.
 - **Checkout route:** through the real payment mock, a payment charges once, sells the seats, issues one ticket each and converts the hold. The same key replays, a new key gets the paid order without a charge, and 10 tabs at once make one charge. No seat, hold or order lock is held while the provider works. A decline answers `402`, the order goes back to `pending`, and a new key pays. Seats lost while charging are refunded, with the rest of the hold freed, also when a seat merely lapsed. A failed refund answers `503` and the same key finishes it, and a refund that was never recorded still ends as `refunded`, never as a sale. An expired hold is never charged, an unreachable provider answers `503`, and a missing key, someone else's hold and a malformed id are refused.
@@ -458,7 +464,27 @@ k6 run loadtest/hot-seat.js
 npm run audit
 ```
 
-`npm run audit` checks the four rules directly in SQL and exits with code 1 on any violation, so CI and load-test runs fail loudly.
+`npm run audit` checks the four rules directly in SQL and exits with code 1 on any violation, so CI and load-test runs fail loudly. It isn't `npm audit`, which is npm's own check of dependencies.
+
+- **The checks:**
+  1. **INV-1:** no seat has two valid tickets.
+  2. **INV-2:** no order has two successful charges.
+  3. **INV-3:** the money kept by the payment provider matches the paid orders, order by order, so two errors can't cancel out in the totals.
+  4. **INV-4:** no seat is still marked held 30 seconds after its hold lapsed.
+- **One snapshot:** all four read one read-only snapshot of the database, so orders and charges are compared at the same instant.
+- **When to run it:** after a load test, once no checkout is still in flight.
+- **Exit codes:** 0 when every rule holds, 1 when one is broken, and 2 when the audit can't run, such as when the database is down.
+
+```text
+Rule   Check                                          Result  Detail
+-----  ---------------------------------------------  ------  -----------------------------------------------------
+INV-1  A seat has at most one valid ticket            PASS    2 valid tickets, no seat twice
+INV-2  An order has at most one successful charge     PASS    1 successful charge, none twice for one order
+INV-3  Money charged equals the total of paid orders  PASS    charged ₹9,000.00, paid ₹9,000.00 across 1 paid order
+INV-4  No seat stays held 30 s past expiry            PASS    no stale holds
+
+Audit passed: all four rules hold.
+```
 
 For `hot-seat`, start the API with the strategy you want (`BOOKING_STRATEGY`) and the same `JWT_SECRET` the tokens were signed with, and reset before every run, because seat 42 is gone after the first. `k6 run -e TARGET=naive loadtest/hot-seat.js` aims it at the unsafe dev route instead, where it fails on purpose. Its thresholds are exactly one winner, under 0.1% failures, and p95 under 2,500 ms, the laptop baseline in NFR-3. Each virtual user's first request is spread over the first second, because Windows client editions refuse most connections opened in the same instant.
 

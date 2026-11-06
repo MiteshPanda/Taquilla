@@ -40,7 +40,8 @@
     "reset": "npm run reset --workspace=@taquilla/api",
     "tokens": "npm run tokens --workspace=@taquilla/api",
     "sweeper": "npm run sweeper --workspace=@taquilla/api",
-    "payments": "npm run dev --workspace=@taquilla/payments-mock"
+    "payments": "npm run dev --workspace=@taquilla/payments-mock",
+    "audit": "npm run audit --workspace=@taquilla/api"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs}": [

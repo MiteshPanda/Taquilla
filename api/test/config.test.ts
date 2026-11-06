@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  parseAuditConfig,
   parseConfig,
   parseMigrateConfig,
   parseResetConfig,
@@ -108,6 +109,15 @@ describe('parseSweeperConfig', () => {
     expect(() => parseSweeperConfig({ SWEEP_INTERVAL_SECONDS: '0' })).toThrow(
       /SWEEP_INTERVAL_SECONDS/,
     );
+  });
+});
+
+describe('parseAuditConfig', () => {
+  it('needs only the database, since the audit only reads', () => {
+    expect(parseAuditConfig({ BOOKING_STRATEGY: 'optimism', LOG_LEVEL: 'warn' })).toEqual({
+      LOG_LEVEL: 'warn',
+      DATABASE_URL: 'postgres://taquilla:taquilla@localhost:5432/taquilla',
+    });
   });
 });
 
