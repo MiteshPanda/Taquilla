@@ -454,8 +454,8 @@ Changes reach `main` only through a pull request, and both jobs must pass on a b
 | Scenario | What it does | Passes when |
 | --- | --- | --- |
 | `hot-seat` | 1,000 virtual users send 10,000 holds for seat 42 | Exactly one hold succeeds |
-| `sellout` | 10,000 hold-then-checkout journeys across 2,000 seats, 70% aimed at the Lateral stands | The audit passes |
-| `double-click` | Every fan sends the same checkout twice in parallel with one key, retrying a `409 REQUEST_IN_PROGRESS` | One successful charge per order |
+| `sellout` | 1,000 fans run 10,000 hold-then-checkout journeys for 1 to 4 adjacent seats, 70% aimed at the Lateral stands, with a fresh key per payment attempt | No failed requests; the audit passes |
+| `double-click` | 1,000 fans each hold two seats, then send the same checkout twice at once with one key, retrying a `409 REQUEST_IN_PROGRESS` with that key | Both clicks end with the same answer; one successful charge per order |
 | `churn` | Fans hold and abandon; others retry after expiry | Expired seats are resold; the audit passes |
 
 ```bash
@@ -463,6 +463,25 @@ npm run reset && npm run tokens
 k6 run loadtest/hot-seat.js
 npm run audit
 ```
+
+`sellout` and `double-click` also need the payment mock (`npm run payments`) beside the API, and the sweeper (`npm run sweeper`) for the audit's fourth rule. Reset before each run.
+
+- **`sellout`:**
+  - **Picking seats:** a fan picks a row and asks for adjacent seats in it. When they're taken, the fan picks again, up to three times.
+  - **Paying:** a decline is followed by a new attempt with a new key, up to three, and a `503` is retried with the same key, as the web page will (FR-WEB-3).
+  - **The thresholds:** no unexpected status, under 0.1% failed requests, and at least one paid order.
+- **`double-click`:**
+  - **No contention for seats:** every fan's two seats are their own, so the only contention is a fan against their own second click.
+  - **What it checks:** the two answers must match once any key order inside the JSON is ignored, because a replay is read back from a `jsonb` column.
+
+Measured on an Intel Core i5-1135G7 (4 cores, 8 threads), 8 GB of RAM and Windows 11. PostgreSQL 16.15 ran in Docker, with the `lock` strategy and the API's pool of 20 connections. The payment mock used its default faults: 100–800 ms of latency, 5% declines and 2% lost answers. k6 2.3.0 ran on the same machine:
+
+| Run | Requests | Failed | Outcome | Audit |
+| --- | --- | --- | --- | --- |
+| `sellout`, 1,000 fans, 10,000 journeys | 29,559 | 0 | 1,958 of 2,000 seats sold in 1,156 orders; 65 declines paid again with a new key | Pass: ₹68,91,000 charged and paid |
+| `double-click`, 1,000 fans | 4,120 | 0 | 1,040 double-clicked payments: every one had a click told `409 REQUEST_IN_PROGRESS` that then got the saved answer; 0 different answers; 995 orders paid | Pass: 995 charges, none twice |
+
+The sellout's holds took 1.25 s on average (p95 1.56 s). Its checkouts took 7.8 s (p95 8.9 s): the provider's own delay, plus waiting for one of the 20 database connections at each of a checkout's steps while 1,000 fans hold seats. WP 6.4 tunes that. The 42 seats left unsold were still free when the last fans gave up picking at random, or were held by fans declined three times.
 
 `npm run audit` checks the four rules directly in SQL and exits with code 1 on any violation, so CI and load-test runs fail loudly. It isn't `npm audit`, which is npm's own check of dependencies.
 
