@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { seedStadium } from '../../scripts/seed.js';
 import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';
-import { createSweeper } from '../src/jobs/sweeper.js';
+import { createSweeper, KEY_TTL_HOURS } from '../src/jobs/sweeper.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { schemaConnectionString } from './helpers/database.js';
@@ -20,6 +20,7 @@ interface LogLine {
   level: number;
   msg: string;
   freed?: number;
+  keysDeleted?: number;
 }
 
 const logs: LogLine[] = [];
@@ -41,6 +42,23 @@ async function holdSeats(seatIds: number[], heldFor: string): Promise<void> {
       WHERE id = ANY($3::int[])`,
     [rows[0]?.id, heldFor, seatIds],
   );
+}
+
+// An idempotency key claimed hoursAgo, finished unless stuck says it never was.
+async function keyFrom(key: string, hoursAgo: number, { stuck = false } = {}): Promise<void> {
+  await db.pool.query(
+    `INSERT INTO idempotency_keys
+       (user_id, idem_key, request_hash, status, response_code, response_body, locked_at)
+     VALUES (1, $1, 'hash', $2, $3, $4, now() - make_interval(hours => $5))`,
+    [key, stuck ? 'in_progress' : 'done', stuck ? null : 200, stuck ? null : '{}', hoursAgo],
+  );
+}
+
+async function keysLeft(): Promise<string[]> {
+  const { rows } = await db.pool.query<{ idem_key: string }>(
+    'SELECT idem_key FROM idempotency_keys ORDER BY idem_key',
+  );
+  return rows.map((row) => row.idem_key);
 }
 
 async function statusOf(seatIds: number[]): Promise<string[]> {
@@ -99,6 +117,7 @@ beforeEach(async () => {
       WHERE status <> 'available'`,
   );
   await db.pool.query('DELETE FROM holds');
+  await db.pool.query('DELETE FROM idempotency_keys');
 });
 
 afterAll(async () => {
@@ -180,6 +199,69 @@ describe('sweepOnce', () => {
 
     expect(await sweeper.sweepOnce()).toBe(1);
     expect(await statusOf([41])).toEqual(['available']);
+  });
+});
+
+describe('deleteOldKeys (FR-EXP-5)', () => {
+  it(`deletes keys older than ${KEY_TTL_HOURS} hours, finished or stuck, and keeps younger ones`, async () => {
+    await keyFrom('old-done', 25);
+    await keyFrom('old-stuck', 25, { stuck: true });
+    await keyFrom('young', 23);
+
+    const deleted = await createSweeper({ db, logger, intervalMs: 1_000 }).deleteOldKeys();
+
+    expect(deleted).toBe(2);
+    expect(await keysLeft()).toEqual(['young']);
+  });
+
+  it('drains a backlog in batches within a single run', async () => {
+    for (let i = 0; i < 7; i += 1) await keyFrom(`old-${i}`, 30);
+
+    const deleted = await createSweeper({
+      db,
+      logger,
+      intervalMs: 1_000,
+      batchSize: 3,
+    }).deleteOldKeys();
+
+    expect(deleted).toBe(7);
+    expect(await keysLeft()).toEqual([]);
+  });
+
+  it('steps past a key a request has locked, and deletes it on a later run', async () => {
+    await keyFrom('old-locked', 25);
+    const sweeper = createSweeper({ db, logger, intervalMs: 1_000 });
+    const other = new Client({ connectionString: CONNECTION_STRING });
+    await other.connect();
+    try {
+      await other.query('BEGIN');
+      await other.query(`SELECT 1 FROM idempotency_keys WHERE idem_key = 'old-locked' FOR UPDATE`);
+
+      const startedAt = performance.now();
+      expect(await sweeper.deleteOldKeys()).toBe(0);
+      expect(performance.now() - startedAt).toBeLessThan(1_000);
+
+      await other.query('ROLLBACK');
+      expect(await sweeper.deleteOldKeys()).toBe(1);
+    } finally {
+      await other.end();
+    }
+  });
+
+  it('runs as part of every sweep, and logs the count', async () => {
+    await keyFrom('old', 25);
+    const sweeper = createSweeper({ db, logger, intervalMs: 1_000 });
+
+    sweeper.start();
+    await waitFor(() => Promise.resolve(logs.some((line) => line.msg === 'sweep finished')));
+    await sweeper.stop();
+
+    expect(logs.find((line) => line.msg === 'sweep finished')).toMatchObject({
+      level: LEVEL.info,
+      freed: 0,
+      keysDeleted: 1,
+    });
+    expect(await keysLeft()).toEqual([]);
   });
 });
 

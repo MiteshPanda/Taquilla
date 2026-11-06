@@ -150,7 +150,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | --- | --- |
 | FR-WEB-1 | The seat map MUST show each stand as a grid with distinct styles for available, held by others, held by you and sold. The page knows its own hold from the hold response. |
 | FR-WEB-2 | After a hold, the page MUST show a countdown to `expiresAt`. |
-| FR-WEB-3 | The page MUST create one `Idempotency-Key` per payment attempt, reuse it on retries, and create a new one only after a decline. |
+| FR-WEB-3 | The page MUST create one `Idempotency-Key` per payment attempt, reuse it on retries (including after `409 REQUEST_IN_PROGRESS` and `503`), and create a new one only after a decline. |
 | FR-WEB-4 | The seat map SHOULD refresh every 2–3 seconds. |
 | FR-WEB-5 | A `409` MUST be shown as a friendly message naming the seat, not as a raw error. |
 
@@ -337,7 +337,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-HOLD-3, FR-HOLD-4, FR-HOLD-6 | `api/test/concurrency.test.ts` | For each strategy: 100 parallel holds on one seat give 1 winner and 99 `409`s; opposite-order multi-seat holds get no `5xx` (and no `SEAT_BUSY` under `lock`); a racing four-seat hold is all or nothing |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
 | FR-DEV-1, FR-DEV-2 | `api/test/naive.test.ts` | The naive buy works, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production` |
-| FR-EXP-3 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, and the process stops with exit code 0 on `SIGTERM` |
+| FR-EXP-3, FR-EXP-5 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, deletes idempotency keys older than 24 hours, and the process stops with exit code 0 on `SIGTERM` |
 | FR-EXP-1 to FR-EXP-4, INV-4 | `api/test/expiry.test.ts`, one test with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan before any sweep, a sweep never undoes a newer hold, and four sweepers at once free each seat exactly once |
 | FR-MOCK-1 to FR-MOCK-5, DR-9 | `payments-mock/test/*.test.ts` | A repeated key returns the original charge, also when 20 first attempts race; one order can be charged under two keys; a refund is safe to repeat; and every fault hits first attempts only |
 | FR-AUTH-3 (orders) | `api/test/orders.test.ts` | The owner sees their order with each ticket's seat, the same body the checkout answered; a stranger, an unknown id and a malformed id all get the same `404` |
@@ -355,7 +355,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 
 ### 9.1 Checkout acceptance cases
 
-1. The same key sent twice in parallel produces one charge and identical responses.
+1. The same key sent twice in parallel produces one charge. While the first runs, the second gets `409 REQUEST_IN_PROGRESS` (FR-IDEM-5); retried with the same key, it gets the first one's saved answer, so both end with identical responses.
 2. The provider loses the response and the client retries: still one charge.
 3. The same key with a different body returns `422`.
 4. Two tabs with two keys on one hold: one `200`, one `409`, one charge.
@@ -422,3 +422,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.21 | 6 Nov 2026 | Charge and Confirm: the checkout's `200` body, FR-PAY-9's freed seats and failed refunds, and the verification row |
 | 0.22 | 6 Nov 2026 | Added the verification row for resume and outage paths (FR-PAY-11, FR-PAY-12, NFR-6) |
 | 0.23 | 6 Nov 2026 | `GET /orders/:id`'s body, which a paid checkout now shares, and its verification row |
+| 0.24 | 6 Nov 2026 | §9.1 case 1: a parallel duplicate gets `409` and retries with the same key; FR-WEB-3's retries; FR-EXP-5 in the sweeper's verification row |
