@@ -11,7 +11,7 @@ export interface SeatRow {
 }
 
 // "Seat 42", "Seats 41 and 42", "Seats 1, 2 and 3".
-function describeSeats(seatIds: number[]): string {
+export function describeSeats(seatIds: number[]): string {
   const [last, ...rest] = [...seatIds].reverse();
   if (rest.length === 0) return `Seat ${last}`;
   return `Seats ${rest.reverse().join(', ')} and ${last}`;

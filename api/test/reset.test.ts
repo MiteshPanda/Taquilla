@@ -93,10 +93,11 @@ describe('resetDatabase', { timeout: 30_000 }, () => {
     await reset();
   }, 30_000);
 
+  // Dropping a database can take over 10 seconds on a busy machine, as creating one can.
   afterAll(async () => {
     await db.close();
     await admin(`DROP DATABASE IF EXISTS ${PROBE_DATABASE} WITH (FORCE)`);
-  });
+  }, 30_000);
 
   it('creates one match with 2,000 available seats and 1,000 fans', async () => {
     expect(await count('events')).toBe(1);
