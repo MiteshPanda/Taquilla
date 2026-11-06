@@ -288,10 +288,10 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 
 | Package | Runtime dependencies | Dev dependencies |
 | --- | --- | --- |
-| Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, prettier, husky, lint-staged, @types/node |
+| Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, eslint-plugin-react-hooks, prettier, husky, lint-staged, @types/node |
 | `api` | express, helmet, cors, express-rate-limit, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/cors, @types/pg, @types/jsonwebtoken, @types/supertest |
 | `payments-mock` | express, pg, pino, pino-http, zod | tsx, @types/express, @types/pg |
-| `web` | react, react-dom | vite, @vitejs/plugin-react |
+| `web` | react, react-dom, zod | vite, @vitejs/plugin-react, @types/react, @types/react-dom |
 | `loadtest` | k6, a standalone binary rather than an npm package | None |
 
 Install the current stable versions and commit `package-lock.json`, so every install is reproducible. TypeScript stays on 6.0 until typescript-eslint supports a newer major version.
@@ -320,6 +320,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | `NODE_ENV` | `development` | `development`, `test` or `production` |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
+| `VITE_API_URL` | `http://localhost:3000` | Web: the API's address, baked into the build; an `http` or `https` URL with no query or fragment |
 
 ## 9. Verification and acceptance
 
@@ -352,6 +353,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | NFR-2 to NFR-4 | k6 `hot-seat` thresholds | `holds_won` count is 1, p95 is under 2,500 ms, failures are under 0.1% |
 | INV-2 | k6 `double-click`, then the audit | Both clicks end with the same answer, and no order has two successful charges |
 | FR-EXP-2, INV-4 | k6 `churn` with `HOLD_SECONDS=10`, then the audit | Every seat sold was an expired hold resold, and the audit exits with code 0 right after and 45 seconds later |
+| §6.2, §6.3 (the web's API client) | `web/test/client.test.ts`, `api/test/web-client.test.ts` | Every error answer becomes a typed error with its code, status and seats, also through the real API app; anything else becomes a network, timeout or bad-response error; and the typecheck fails if the web's codes and the server's differ |
 | NFR-12 | GitHub Actions | The workflow is green on every push |
 
 ### 9.1 Checkout acceptance cases
@@ -428,3 +430,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.26 | 7 Nov 2026 | NFR-1 counts journeys instead of placeholder requests; the `double-click` verification row also requires matching answers |
 | 0.27 | 7 Nov 2026 | The `churn` verification row: short holds, and an audit 45 seconds after the run |
 | 0.28 | 7 Nov 2026 | NFR-3: the measured hot-seat latency per strategy and what limits it |
+| 0.29 | 7 Nov 2026 | The web scaffold: `VITE_API_URL`, the web's dependencies (zod, React types, the hooks lint rules), and the verification row for its API client |

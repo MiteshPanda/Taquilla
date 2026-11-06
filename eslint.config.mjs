@@ -1,5 +1,6 @@
 import js from '@eslint/js';
 import prettier from 'eslint-config-prettier';
+import reactHooks from 'eslint-plugin-react-hooks';
 import { defineConfig, globalIgnores } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
@@ -31,6 +32,11 @@ export default defineConfig(
         console: 'readonly',
       },
     },
+  },
+  {
+    // The rules of hooks, plus the checks React Compiler relies on.
+    files: ['web/**/*.{ts,tsx}'],
+    extends: [reactHooks.configs.flat['recommended-latest']],
   },
   prettier,
 );

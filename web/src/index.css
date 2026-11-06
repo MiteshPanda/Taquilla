@@ -1,0 +1,38 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem;
+}
+
+/* The status reads in words as well as colour, so the colour is never the only signal. */
+.api-status::before {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.api-status-checking {
+  color: GrayText;
+}
+
+.api-status-up {
+  color: light-dark(#13702f, #5fd17d);
+}
+
+.api-status-down {
+  color: light-dark(#b42318, #ff8a7a);
+}
