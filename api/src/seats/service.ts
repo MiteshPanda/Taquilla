@@ -16,6 +16,15 @@ export interface SeatMap {
   seats: Seat[];
 }
 
+// Every seat of an event in section, row and seat order: the order of the unique index on
+// (event_id, section, row_label, seat_no), which serves it without a sort (WP 6.4).
+export const SEAT_MAP_QUERY = `
+  SELECT id, section, row_label AS "row", seat_no AS "number", price_paise AS "pricePaise",
+         CASE WHEN status = 'held' AND held_until < now() THEN 'available' ELSE status END AS state
+    FROM seats
+   WHERE event_id = $1
+   ORDER BY section, row_label, seat_no`;
+
 // Returns undefined when the event doesn't exist.
 export async function getSeatMap(
   db: Pick<Database, 'pool'>,
@@ -30,13 +39,6 @@ export async function getSeatMap(
 
   // A plain read with no FOR UPDATE, so it never waits for a booking or holds one up.
   // A lapsed hold reads as available at once, without waiting for the sweeper (lazy expiry).
-  const { rows: seats } = await db.pool.query<Seat>(
-    `SELECT id, section, row_label AS "row", seat_no AS "number", price_paise AS "pricePaise",
-            CASE WHEN status = 'held' AND held_until < now() THEN 'available' ELSE status END AS state
-       FROM seats
-      WHERE event_id = $1
-      ORDER BY section, row_label, seat_no`,
-    [eventId],
-  );
+  const { rows: seats } = await db.pool.query<Seat>(SEAT_MAP_QUERY, [eventId]);
   return { event, seats };
 }

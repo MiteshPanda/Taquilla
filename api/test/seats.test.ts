@@ -8,6 +8,7 @@ import type { Database } from '../src/db.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { createSeatsRouter } from '../src/seats/routes.js';
+import { SEAT_MAP_QUERY } from '../src/seats/service.js';
 import type { Seat, SeatMap } from '../src/seats/service.js';
 import { schemaConnectionString } from './helpers/database.js';
 
@@ -152,6 +153,23 @@ describe('GET /events/:id/seats', () => {
       await booking.query('ROLLBACK');
       await booking.end();
     }
+  });
+
+  it('reads the seats in order straight from the unique index, with no sort (WP 6.4)', async () => {
+    // Holds and sales rewrite rows, so on disk the seats drift out of index order, as after a
+    // sellout. A freshly seeded table would hide the planner's choice.
+    await db.pool.query('UPDATE seats SET price_paise = price_paise WHERE id % 2 = 0');
+    await db.pool.query('ANALYZE seats');
+
+    const { rows } = await db.pool.query<{ 'QUERY PLAN': unknown }>(
+      `EXPLAIN (FORMAT JSON) ${SEAT_MAP_QUERY}`,
+      [1],
+    );
+
+    const plan = JSON.stringify(rows[0]?.['QUERY PLAN']);
+    expect(plan).toContain('"Node Type":"Index Scan"');
+    expect(plan).toContain('"Index Name":"seats_event_id_section_row_label_seat_no_key"');
+    expect(plan).not.toContain('"Node Type":"Sort"');
   });
 
   it('returns only the seats of the event asked for', async () => {

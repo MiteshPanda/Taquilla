@@ -170,7 +170,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | --- | --- | --- |
 | NFR-1 | Correctness | The audit MUST pass after the `sellout` scenario: 10,000 hold-then-checkout journeys from 1,000 concurrent virtual users, about 30,000 requests. |
 | NFR-2 | Correctness | The `hot-seat` scenario (10,000 requests for one seat) MUST produce exactly one successful hold. |
-| NFR-3 | Latency | p95 hold latency SHOULD stay under 2,500 ms during `hot-seat` with 1,000 virtual users on a developer laptop. This is the measured baseline: every virtual user sends its next request as soon as the last one answers, so latency is about 1,000 divided by requests per second (1.8 to 2.2 s on an 8-thread laptop). WP 6.4 tunes it. |
+| NFR-3 | Latency | p95 hold latency SHOULD stay under 2,500 ms during `hot-seat` with 1,000 virtual users on a developer laptop. Every virtual user sends its next request as soon as the last one answers, so latency is about 1,000 divided by requests per second. Measured in WP 6.4 on an 8-thread laptop: 1.19 to 1.48 s across the strategies, limited by the API's single Node.js thread (`docs/benchmarks.md`). |
 | NFR-4 | Reliability | Unexpected failures (`5xx` and timeouts) MUST stay below 0.1% of requests under load; `409` is an expected answer. |
 | NFR-5 | Fail fast | Every booking transaction MUST set `lock_timeout = '2s'`, so no request waits on a lock indefinitely. |
 | NFR-6 | Recovery | A crash or timeout mid-payment MUST NOT cause a double charge, and a retry with the same key MUST complete the order. |
@@ -427,3 +427,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.25 | 7 Nov 2026 | The audit: one snapshot and an order-by-order INV-3 (FR-AUD-1), exit code 2 (FR-AUD-2), and its verification row |
 | 0.26 | 7 Nov 2026 | NFR-1 counts journeys instead of placeholder requests; the `double-click` verification row also requires matching answers |
 | 0.27 | 7 Nov 2026 | The `churn` verification row: short holds, and an audit 45 seconds after the run |
+| 0.28 | 7 Nov 2026 | NFR-3: the measured hot-seat latency per strategy and what limits it |

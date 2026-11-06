@@ -50,6 +50,19 @@ export function createDatabase({
     logger.error({ err }, 'idle database connection lost');
   });
 
+  // Postgres's default random_page_cost of 4 assumes spinning disks. The stadium is small enough
+  // to stay in memory, where reading by index costs about what reading in order does. At 4, the
+  // planner reads the whole seats table and sorts it for the seat map (2.3–2.8 ms); at 1.1, the
+  // SSD value, it walks the (event, section, row, seat) index already in that order (0.6–0.7 ms).
+  // See docs/benchmarks.md.
+  // Set as each connection opens, so it holds whatever DATABASE_URL carries. pg runs it before
+  // anything else on the new connection.
+  pool.on('connect', (client) => {
+    client.query('SET random_page_cost = 1.1').catch((err: unknown) => {
+      logger.error({ err }, 'could not set random_page_cost on a new connection');
+    });
+  });
+
   return {
     pool,
 
