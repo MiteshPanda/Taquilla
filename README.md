@@ -203,6 +203,8 @@ To run the expiry sweeper alongside it, use `docker compose up -d sweeper`, or `
 
 To run the payment mock, use `docker compose up -d payments-mock`, which creates its `payments` schema and then listens on `127.0.0.1:4000`. On the host, run `npm run migrate` once, then `npm run payments`.
 
+To run the web page, use `npm run web` on the host. It serves the page at http://localhost:5173, which for now shows whether the API at `VITE_API_URL` answers `/health`. Until WP 8.1 adds its container, `docker compose up` doesn't start it.
+
 To run only the database, use `docker compose up -d postgres`. It creates `taquilla` and `taquilla_test`, and listens on `127.0.0.1:5432`. The init script runs only on an empty volume, so `docker compose down -v` is how you start again from nothing; it deletes all local data.
 
 ### Reproduce the headline result
@@ -218,8 +220,10 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | Start the API in watch mode |
-| `npm test` | Run the concurrency, race, expiry and checkout test suites |
-| `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout`, `idempotency` and the payment mock's charge logic |
+| `npm run web` | Start the web page's dev server on port 5173 |
+| `npm run build` | Type-check the web page and build it into `web/dist`; any warning fails the build |
+| `npm test` | Run the concurrency, race, expiry, checkout and web client test suites |
+| `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout`, `idempotency`, the payment mock's charge logic and the web's API client |
 | `npm run lint` | Run ESLint with type-checked rules; any warning fails |
 | `npm run format` | Format the code with Prettier (`npm run format:check` only checks it) |
 | `npm run typecheck` | Type-check every package with TypeScript in `strict` mode |
@@ -252,6 +256,9 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `NODE_ENV` | `development` | `development`, `test` or `production` |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
+| `VITE_API_URL` | `http://localhost:3000` | Web: the API's address. Vite bakes it into the build, so a change needs a rebuild |
+
+The web page reads the same `.env`. Vite passes only `VITE_` variables to the browser, so the API's secrets in that file never reach it.
 
 ### Migrations
 
@@ -435,6 +442,7 @@ npm test
 - **Concurrency:** through a real HTTP server, for every strategy: 100 parallel holds on one seat produce exactly one winner and 99 `409`s; overlapping multi-seat holds asked in opposite orders never get a `5xx`, and under `lock` never even wait long enough to get `SEAT_BUSY`; and a four-seat hold racing for its last seat is held whole or not at all. The suite passed 20 runs in a row.
 - **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. At 50, the check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. At 0 the count is only recorded, because whether the requests overlap depends on the machine. A separate check makes sure each race ran cleanly, with no `5xx`.
 - **Expiry:** end to end with `HOLD_SECONDS=2`, a hold lasts 2 seconds, then its seats show as free and another fan can take them before any sweep, and the sweeper frees the rest. Under every strategy, a lapsed seat goes to the next fan, and a sweep running at the same moment never undoes their new hold. One sweep frees the whole stadium's lapsed seats, and four sweepers at once free each seat exactly once.
+- **Web API client:** every error answer becomes an `ApiError` with its status, code, message, seats and request ID, for each of the 16 codes. An error page that isn't JSON, an unknown code and a body the schema refuses become `BAD_RESPONSE`; no answer becomes `NETWORK_ERROR`, and no full answer within 30 seconds (5 for `/health`), `TIMEOUT`. A cancel by the page itself is passed on as it is. Against the real API app over HTTP, the client calls `/health`, its body, token and key reach the server's parser, the server's errors arrive intact, and CORS lets the page send its headers and read the request ID. `npm run typecheck` fails if the web's error codes and the server's ever differ.
 - **Checkout acceptance,** the six cases of requirements.md §9.1, in `checkout.test.ts` through the real payment client and mock. They passed 20 runs in a row.
   - Same key sent twice in parallel: one charge. The second gets `409 REQUEST_IN_PROGRESS`, retries with the same key, and ends with the same answer as the first
   - Provider loses the response and the client retries: still one charge
@@ -445,7 +453,7 @@ npm test
 
 ### Continuous integration
 
-Every push and pull request runs [the CI workflow](.github/workflows/ci.yml) against a Postgres 16 service container: `npm ci`, format check, lint, typecheck, migrate and test. A separate job runs `npm audit --audit-level=high`. Dependabot proposes npm and GitHub Actions updates every week.
+Every push and pull request runs [the CI workflow](.github/workflows/ci.yml) against a Postgres 16 service container: `npm ci`, format check, lint, typecheck, the web build, migrate and test. A separate job runs `npm audit --audit-level=high`. Dependabot proposes npm and GitHub Actions updates every week.
 
 Changes reach `main` only through a pull request, and both jobs must pass on a branch that is up to date with `main`. Branch protection enforces this for everyone, including admins.
 
@@ -609,6 +617,11 @@ taquilla/
 │   │   └── server.ts        # npm run payments
 │   └── test/
 ├── web/                     # React + Vite seat map
+│   ├── src/
+│   │   ├── api/             # typed API client: every error answer becomes an ApiError
+│   │   ├── config.ts        # VITE_API_URL, checked by the build and by the page
+│   │   └── App.tsx          # the page; for now, whether the API is up
+│   └── test/
 ├── loadtest/                # k6 scenarios
 ├── scripts/                 # reset, seed, tokens, audit
 ├── docs/
