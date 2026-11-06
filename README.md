@@ -156,6 +156,7 @@ sequenceDiagram
 ```
 
 - No row lock is held while the provider is called. Checkout is three short steps around the network call.
+- Each provider call gets 3 seconds and up to 3 retries, all with the same provider key, so a retry can never charge twice. Waits between attempts grow from up to 100 ms to up to 400 ms, at random, so retries don't all arrive together. A timeout, a dropped connection or a `5xx` is retried; a `4xx` means a bug, so it isn't.
 - Same key again: the saved response is replayed. Same key with a different body: `422`. Same key while the first request is still running: `409`.
 - If the server crashes mid-payment, a retry with the same key resumes at the charge step and gets the original result back.
 - If the seats were lost before confirmation, the charge is refunded and the fan gets `409`.
@@ -390,6 +391,7 @@ npm test
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
 - **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`.
+- **Payment client:** against the real mock, a success, a decline, a lost first response and a provider slower than the timeout each end in exactly one charge. An unreachable provider is reported as unavailable after 1 attempt and 3 retries. Against a scripted provider, `5xx` answers are retried with the same key, body and request ID, an attempt that gets no answer or stalls halfway through is cut off, and a refusal or an unexpected body is thrown without retrying.
 - **Payment mock:** a repeated key returns the original charge, also when 20 first attempts race; one order can be charged twice under two keys; refunds are safe to repeat, also 10 at once; and each fault hits first attempts only, so the retry after a lost response gets back the one charge it made. Its migrations, settings and process are covered too.
 - **Release:** `DELETE /holds/:id` frees only the seats the hold still has, answers `404` for anyone else's hold, and is harmless to repeat, even twice at once.
 - **Concurrency:** through a real HTTP server, for every strategy: 100 parallel holds on one seat produce exactly one winner and 99 `409`s; overlapping multi-seat holds asked in opposite orders never get a `5xx`, and under `lock` never even wait long enough to get `SEAT_BUSY`; and a four-seat hold racing for its last seat is held whole or not at all. The suite passed 20 runs in a row.
@@ -490,7 +492,7 @@ taquilla/
 │   │   ├── auth/            # signup, login, JWT middleware
 │   │   ├── seats/           # seat map with lazy expiry
 │   │   ├── holds/           # lock, cas and serializable strategies
-│   │   ├── checkout/        # reserve → charge → confirm
+│   │   ├── checkout/        # reserve → charge → confirm; payment-client.ts calls the provider
 │   │   ├── idempotency/     # Idempotency-Key middleware
 │   │   ├── jobs/            # sweeper.ts frees expired holds; sweeper-cli.ts runs it as its own process
 │   │   └── dev/             # naive buy, dev only
