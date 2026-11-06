@@ -456,7 +456,7 @@ Changes reach `main` only through a pull request, and both jobs must pass on a b
 | `hot-seat` | 1,000 virtual users send 10,000 holds for seat 42 | Exactly one hold succeeds |
 | `sellout` | 1,000 fans run 10,000 hold-then-checkout journeys for 1 to 4 adjacent seats, 70% aimed at the Lateral stands, with a fresh key per payment attempt | No failed requests; the audit passes |
 | `double-click` | 1,000 fans each hold two seats, then send the same checkout twice at once with one key, retrying a `409 REQUEST_IN_PROGRESS` with that key | Both clicks end with the same answer; one successful charge per order |
-| `churn` | Fans hold and abandon; others retry after expiry | Expired seats are resold; the audit passes |
+| `churn` | In the Lateral Este stand, 250 fans hold every seat and walk away, 150 keep holding lapsed seats and walking away, and 300 keep trying to buy until holds expire | Expired seats are resold; the audit passes, also 45 s later |
 
 ```bash
 npm run reset && npm run tokens
@@ -470,6 +470,10 @@ npm run audit
   - **Picking seats:** a fan picks a row and asks for adjacent seats in it. When they're taken, the fan picks again, up to three times.
   - **Paying:** a decline is followed by a new attempt with a new key, up to three, and a `503` is retried with the same key, as the web page will (FR-WEB-3).
   - **The thresholds:** no unexpected status, under 0.1% failed requests, and at least one paid order.
+- **`churn`:**
+  - **Short holds:** run the API with `HOLD_SECONDS=10`, so holds lapse during the run. The script checks this from the first hold's expiry.
+  - **Every sale is a resale:** the whole stand is held by fans who walk away before any buyer arrives, so every seat sold is an expired hold.
+  - **The audit, twice:** run it right after, and again 45 seconds later, when the sweeper must have cleared any hold left over (INV-4).
 - **`double-click`:**
   - **No contention for seats:** every fan's two seats are their own, so the only contention is a fan against their own second click.
   - **What it checks:** the two answers must match once any key order inside the JSON is ignored, because a replay is read back from a `jsonb` column.
@@ -479,9 +483,10 @@ Measured on an Intel Core i5-1135G7 (4 cores, 8 threads), 8 GB of RAM and Window
 | Run | Requests | Failed | Outcome | Audit |
 | --- | --- | --- | --- | --- |
 | `sellout`, 1,000 fans, 10,000 journeys | 29,559 | 0 | 1,958 of 2,000 seats sold in 1,156 orders; 65 declines paid again with a new key | Pass: ₹68,91,000 charged and paid |
+| `churn`, 700 fans for 80 s, `HOLD_SECONDS=10` | 24,400 | 0 | 642 seat holds abandoned; 424 of the stand's 500 seats resold in 212 orders, all after their holds expired. 415 of the abandoned holds were taken by the next fan before any sweep (lazy expiry), and the sweeper freed the other 227 | Pass right after, and again 45 s later, with no seat left held |
 | `double-click`, 1,000 fans | 4,120 | 0 | 1,040 double-clicked payments: every one had a click told `409 REQUEST_IN_PROGRESS` that then got the saved answer; 0 different answers; 995 orders paid | Pass: 995 charges, none twice |
 
-The sellout's holds took 1.25 s on average (p95 1.56 s). Its checkouts took 7.8 s (p95 8.9 s): the provider's own delay, plus waiting for one of the 20 database connections at each of a checkout's steps while 1,000 fans hold seats. WP 6.4 tunes that. The 42 seats left unsold were still free when the last fans gave up picking at random, or were held by fans declined three times.
+The sellout's holds took 1.25 s on average (p95 1.56 s). Its checkouts took 7.8 s (p95 8.9 s): the provider's own delay, plus waiting for one of the 20 database connections at each of a checkout's steps while 1,000 fans hold seats. WP 6.4 tunes that. Churn's 76 unsold seats were mostly single seats between sold pairs, which fans asking for two adjacent seats can't use. The 42 seats the sellout left unsold were still free when the last fans gave up picking at random, or were held by fans declined three times.
 
 `npm run audit` checks the four rules directly in SQL and exits with code 1 on any violation, so CI and load-test runs fail loudly. It isn't `npm audit`, which is npm's own check of dependencies.
 

@@ -351,7 +351,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | INV-1 to INV-4, NFR-1 | k6 `sellout`, then `npm run audit` | The audit exits with code 0 |
 | NFR-2 to NFR-4 | k6 `hot-seat` thresholds | `holds_won` count is 1, p95 is under 2,500 ms, failures are under 0.1% |
 | INV-2 | k6 `double-click`, then the audit | Both clicks end with the same answer, and no order has two successful charges |
-| FR-EXP-2, INV-4 | k6 `churn`, then the audit | Expired seats are resold and the audit exits with code 0 |
+| FR-EXP-2, INV-4 | k6 `churn` with `HOLD_SECONDS=10`, then the audit | Every seat sold was an expired hold resold, and the audit exits with code 0 right after and 45 seconds later |
 | NFR-12 | GitHub Actions | The workflow is green on every push |
 
 ### 9.1 Checkout acceptance cases
@@ -426,3 +426,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.24 | 6 Nov 2026 | §9.1 case 1: a parallel duplicate gets `409` and retries with the same key; FR-WEB-3's retries; FR-EXP-5 in the sweeper's verification row |
 | 0.25 | 7 Nov 2026 | The audit: one snapshot and an order-by-order INV-3 (FR-AUD-1), exit code 2 (FR-AUD-2), and its verification row |
 | 0.26 | 7 Nov 2026 | NFR-1 counts journeys instead of placeholder requests; the `double-click` verification row also requires matching answers |
+| 0.27 | 7 Nov 2026 | The `churn` verification row: short holds, and an audit 45 seconds after the run |
