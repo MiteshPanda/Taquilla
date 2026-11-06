@@ -269,11 +269,11 @@ describe('security headers and CORS', () => {
     expect(res.headers['x-powered-by']).toBeUndefined();
   });
 
-  it('allows a listed origin and exposes the request ID to it', async () => {
+  it('allows a listed origin and exposes the request ID and the replay marker to it', async () => {
     const res = await request(buildApp()).get('/ok').set('Origin', ALLOWED_ORIGIN);
 
     expect(res.headers['access-control-allow-origin']).toBe(ALLOWED_ORIGIN);
-    expect(res.headers['access-control-expose-headers']).toBe('X-Request-Id');
+    expect(res.headers['access-control-expose-headers']).toBe('X-Request-Id,Idempotent-Replayed');
   });
 
   it('does not allow any other origin', async () => {
