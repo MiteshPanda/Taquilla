@@ -2,8 +2,10 @@ import type { Logger } from 'pino';
 import type { Database } from '../db.js';
 import { AppError } from '../errors.js';
 import { describeSeats } from '../holds/shared.js';
-import { confirm, markDeclined, markRefunded, ticketsOf } from './confirm.js';
-import type { PaymentRef, Ticket } from './confirm.js';
+import { findOrder } from '../orders/view.js';
+import type { OrderView } from '../orders/view.js';
+import { confirm, markDeclined, markRefunded } from './confirm.js';
+import type { PaymentRef } from './confirm.js';
 import type { Order } from './order.js';
 import type { PaymentClient } from './payment-client.js';
 import { reserve } from './reserve.js';
@@ -21,23 +23,11 @@ export interface CheckoutRequest {
   requestId?: string;
 }
 
-// The 200 answer: a paid order and its tickets.
-export interface PaidOrder {
-  orderId: string;
-  holdId: string;
-  status: 'paid';
-  amountPaise: number;
-  tickets: Ticket[];
-}
-
-function paidOrder(order: Order, tickets: Ticket[]): PaidOrder {
-  return {
-    orderId: order.id,
-    holdId: order.holdId,
-    status: 'paid',
-    amountPaise: order.amountPaise,
-    tickets,
-  };
+// The 200 answer: the paid order exactly as GET /orders/:id shows it, tickets and seats included.
+async function paidView(db: CheckoutDeps['db'], order: Order): Promise<OrderView> {
+  const view = await findOrder(db, { orderId: order.id, userId: order.userId });
+  if (!view) throw new Error(`Paid order ${order.id} can't be found.`);
+  return view;
 }
 
 function unavailable(): AppError {
@@ -64,10 +54,10 @@ function seatsLostRefunded(lost: number[]): AppError {
 export async function checkout(
   { db, payments }: CheckoutDeps,
   { holdId, userId, clientKey, logger, requestId }: CheckoutRequest,
-): Promise<PaidOrder> {
+): Promise<OrderView> {
   const reserved = await reserve(db, { holdId, userId, clientKey });
   if (reserved.kind === 'paid') {
-    return paidOrder(reserved.order, await ticketsOf(db.pool, reserved.order.id));
+    return paidView(db, reserved.order);
   }
   const payment: PaymentRef = { order: reserved.order, paymentKey: reserved.paymentKey };
   const { order, paymentKey } = payment;
@@ -107,7 +97,7 @@ export async function checkout(
       { orderId: order.id, amountPaise: order.amountPaise, tickets: confirmed.tickets.length },
       'order paid',
     );
-    return paidOrder(confirmed.order, confirmed.tickets);
+    return paidView(db, confirmed.order);
   }
 
   // The seats went while the provider was charging (FR-PAY-9): give the money back.

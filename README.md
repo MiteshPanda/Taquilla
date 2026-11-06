@@ -313,8 +313,8 @@ curl -X POST localhost:4000/charges \
 | `GET` | `/events/:id/seats` | None | Seat map with live state | `200` | `404` |
 | `POST` | `/events/:id/holds` | JWT | Hold 1–6 seats, all or nothing; `Idempotency-Key` optional | `201` | `400`, `401`, `404`, `409`, `422` |
 | `DELETE` | `/holds/:id` | JWT | Release a hold early | `204` | `401`, `404` |
-| `POST` | `/holds/:id/checkout` | JWT | Reserve, charge, confirm; `Idempotency-Key` required | `200` with the paid order and its tickets | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
-| `GET` | `/orders/:id` | JWT | Order with its tickets | `200` | `401`, `404` |
+| `POST` | `/holds/:id/checkout` | JWT | Reserve, charge, confirm; `Idempotency-Key` required | `200` with the paid order, as `GET /orders/:id` shows it | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
+| `GET` | `/orders/:id` | JWT | The fan's own order, with its tickets and their seats | `200` | `401`, `404` |
 | `POST` | `/dev/buy-naive` | JWT | Dev only: the deliberately unsafe buy, `{ "seatId": 42 }` | `201` | `400`, `401`, `404`, `409` |
 
 `DELETE /holds/:id` frees the seats the hold still has and marks it `released`. A seat another fan took after the hold lapsed stays theirs, and a paid hold stays as it is. Repeating it is harmless, and anyone else's hold gets the same `404` as one that doesn't exist.
@@ -346,7 +346,7 @@ curl -s -X POST localhost:3000/holds/$HOLD_ID/checkout \
   -H "Idempotency-Key: $(uuidgen)"
 ```
 
-A paid checkout answers with the order and one ticket per seat. Checking out an order that is already paid, with any key, answers the same without charging again:
+`GET /orders/:id` shows a fan their own order, with one ticket per seat once it's paid, each with the seat's details. A paid checkout answers with exactly the same body, and so does checking out an order that is already paid, with any key, without charging again. Anyone else's order, an unknown one and a malformed id all get the same `404`, and the answer is sent with `Cache-Control: private, no-store`:
 
 ```json
 {
@@ -354,12 +354,15 @@ A paid checkout answers with the order and one ticket per seat. Checking out an 
   "holdId": "54a48b79-c360-49d3-9440-3362d8253ae7",
   "status": "paid",
   "amountPaise": 900000,
+  "createdAt": "2026-11-06T15:41:52.112Z",
   "tickets": [
-    { "id": 1, "seatId": 41 },
-    { "id": 2, "seatId": 42 }
+    { "id": 1, "seatId": 41, "section": "Lateral Este", "row": "B", "number": 16, "pricePaise": 450000 },
+    { "id": 2, "seatId": 42, "section": "Lateral Este", "row": "B", "number": 17, "pricePaise": 450000 }
   ]
 }
 ```
+
+An order that isn't paid yet (`pending` or `paying`) or was `refunded` has no tickets.
 
 The seat map lists every seat in section, row and seat order, and is sent with `Cache-Control: no-store`. A seat whose hold has lapsed already reads `available`:
 
@@ -415,6 +418,7 @@ npm test
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
 - **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`.
+- **Orders:** the owner sees their paid order with each ticket's seat, exactly as the checkout answered it; an unpaid order has no tickets, and only valid tickets are listed. Another fan's order gets the same `404` as an unknown one, a malformed id gets `404`, and no login gets `401`.
 - **Checkout recovery:** the provider is cut off mid-payment, and the fan retries with the same key. A lost answer is retried inside the request. With no retry left, the request ends in `503`, and the same key completes the order with the charge the first attempt made. A provider that stalls past every timeout still charges once; its decline comes back as `402`, and lost seats are refunded. When the provider is down and comes back, the same key pays once and another key gets `409`. A retry during the first request gets `409 REQUEST_IN_PROGRESS`. After a crash, the key is taken over at 60 seconds and the order completes; a crash after Confirm returns the paid order. Every case ends with exactly one charge.
 - **Checkout route:** through the real payment mock, a payment charges once, sells the seats, issues one ticket each and converts the hold. The same key replays, a new key gets the paid order without a charge, and 10 tabs at once make one charge. No seat, hold or order lock is held while the provider works. A decline answers `402`, the order goes back to `pending`, and a new key pays. Seats lost while charging are refunded, with the rest of the hold freed, also when a seat merely lapsed. A failed refund answers `503` and the same key finishes it, and a refund that was never recorded still ends as `refunded`, never as a sale. An expired hold is never charged, an unreachable provider answers `503`, and a missing key, someone else's hold and a malformed id are refused.
 - **Reserve:** a valid hold gets one order, set `paying` under `pay:{orderId}:{key}`, with its seats extended to 10 minutes and never shortened. A re-taken, lapsed or released hold gets `409 HOLD_EXPIRED` and no order. A paid order is returned untouched, another key gets `409 PAYMENT_IN_PROGRESS`, the same key resumes even if seats were lost, a declined order pays again under a new key, and a refunded one gets `409 SEAT_LOST_REFUNDED`. 20 tabs at once make one order. Reserve waits for a rival's seat lock and judges the seat as the rival left it, and it locks seats in ascending order.
@@ -521,6 +525,7 @@ taquilla/
 │   │   ├── seats/           # seat map with lazy expiry
 │   │   ├── holds/           # lock, cas and serializable strategies
 │   │   ├── checkout/        # reserve → charge → confirm; payment-client.ts calls the provider
+│   │   ├── orders/          # GET /orders/:id, and the order view checkout answers with
 │   │   ├── idempotency/     # Idempotency-Key middleware
 │   │   ├── jobs/            # sweeper.ts frees expired holds; sweeper-cli.ts runs it as its own process
 │   │   └── dev/             # naive buy, dev only

@@ -7,6 +7,7 @@ import type { Database } from './db.js';
 import { createDevRouter } from './dev/routes.js';
 import { createHealthRouter } from './health/routes.js';
 import { createHoldsRouter } from './holds/routes.js';
+import { createOrdersRouter } from './orders/routes.js';
 import type { HoldStrategy } from './holds/strategy.js';
 import { createSeatsRouter } from './seats/routes.js';
 
@@ -30,6 +31,7 @@ export function createRoutes({ db, config, holdStrategy, payments }: RoutesOptio
   routes.use(createSeatsRouter({ db }));
   routes.use(createHoldsRouter({ db, holdStrategy, config }));
   routes.use(createCheckoutRouter({ db, payments, config }));
+  routes.use(createOrdersRouter({ db, config }));
   if (devRoutesEnabled(config.NODE_ENV)) {
     routes.use('/dev', createDevRouter({ db, config }));
   }
