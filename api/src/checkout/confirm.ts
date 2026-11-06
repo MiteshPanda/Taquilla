@@ -112,17 +112,6 @@ export function markRefunded(db: Db, { order, paymentKey }: PaymentRef): Promise
   });
 }
 
-export async function ticketsOf(
-  client: Pick<PoolClient, 'query'>,
-  orderId: string,
-): Promise<Ticket[]> {
-  const { rows } = await client.query<{ id: number; seat_id: number }>(
-    `SELECT id, seat_id FROM tickets WHERE order_id = $1 AND status = 'valid' ORDER BY seat_id`,
-    [orderId],
-  );
-  return rows.map((row) => ({ id: row.id, seatId: row.seat_id }));
-}
-
 async function lockOrder(client: PoolClient, orderId: string): Promise<Order> {
   const { rows } = await client.query<OrderRow>(
     `SELECT ${ORDER_COLUMNS} FROM orders WHERE id = $1 FOR UPDATE`,

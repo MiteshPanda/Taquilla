@@ -184,15 +184,13 @@ describe('POST /holds/:id/checkout: a successful payment', () => {
     const res = await pay(holdId, 'tab-1').expect(200);
 
     const order = await orderOf(holdId);
-    expect(res.body).toEqual({
+    // The same shape as GET /orders/:id, which orders.test.ts checks field by field.
+    expect(res.body).toMatchObject({
       orderId: order?.id,
       holdId,
       status: 'paid',
       amountPaise: 900_000,
-      tickets: [
-        { id: expect.any(Number) as number, seatId: 41 },
-        { id: expect.any(Number) as number, seatId: 42 },
-      ],
+      tickets: [{ seatId: 41 }, { seatId: 42 }],
     });
     expect(order?.status).toBe('paid');
     expect(await seatStates()).toEqual([
