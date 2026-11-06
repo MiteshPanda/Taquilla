@@ -66,7 +66,7 @@ flowchart LR
 - **API:** a stateless Express service. All booking state lives in Postgres, so a second instance would stay just as correct.
 - **PostgreSQL:** decides every race with row locks; constraints are the last line of defence.
 - **Mock payment provider:** a separate service that dedupes by idempotency key, like Stripe, and injects latency, declines and lost responses.
-- **Sweeper:** frees expired holds every 10 seconds with `SKIP LOCKED`. It's housekeeping only, because every query already treats an expired hold as free.
+- **Sweeper:** frees expired holds every 10 seconds with `SKIP LOCKED`, and deletes idempotency keys older than 24 hours. It's housekeeping only, because every query already treats an expired hold as free.
 - **Audit:** checks the four rules in SQL after every load test and fails loudly.
 
 ## Seat lifecycle
@@ -417,7 +417,7 @@ npm test
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
-- **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`.
+- **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`. Each run also deletes idempotency keys older than 24 hours, finished or stuck, in batches, stepping past a key a request has locked.
 - **Orders:** the owner sees their paid order with each ticket's seat, exactly as the checkout answered it; an unpaid order has no tickets, and only valid tickets are listed. Another fan's order gets the same `404` as an unknown one, a malformed id gets `404`, and no login gets `401`.
 - **Checkout recovery:** the provider is cut off mid-payment, and the fan retries with the same key. A lost answer is retried inside the request. With no retry left, the request ends in `503`, and the same key completes the order with the charge the first attempt made. A provider that stalls past every timeout still charges once; its decline comes back as `402`, and lost seats are refunded. When the provider is down and comes back, the same key pays once and another key gets `409`. A retry during the first request gets `409 REQUEST_IN_PROGRESS`. After a crash, the key is taken over at 60 seconds and the order completes; a crash after Confirm returns the paid order. Every case ends with exactly one charge.
 - **Checkout route:** through the real payment mock, a payment charges once, sells the seats, issues one ticket each and converts the hold. The same key replays, a new key gets the paid order without a charge, and 10 tabs at once make one charge. No seat, hold or order lock is held while the provider works. A decline answers `402`, the order goes back to `pending`, and a new key pays. Seats lost while charging are refunded, with the rest of the hold freed, also when a seat merely lapsed. A failed refund answers `503` and the same key finishes it, and a refund that was never recorded still ends as `refunded`, never as a sale. An expired hold is never charged, an unreachable provider answers `503`, and a missing key, someone else's hold and a malformed id are refused.
@@ -429,10 +429,10 @@ npm test
 - **Concurrency:** through a real HTTP server, for every strategy: 100 parallel holds on one seat produce exactly one winner and 99 `409`s; overlapping multi-seat holds asked in opposite orders never get a `5xx`, and under `lock` never even wait long enough to get `SEAT_BUSY`; and a four-seat hold racing for its last seat is held whole or not at all. The suite passed 20 runs in a row.
 - **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. At 50, the check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. At 0 the count is only recorded, because whether the requests overlap depends on the machine. A separate check makes sure each race ran cleanly, with no `5xx`.
 - **Expiry:** end to end with `HOLD_SECONDS=2`, a hold lasts 2 seconds, then its seats show as free and another fan can take them before any sweep, and the sweeper frees the rest. Under every strategy, a lapsed seat goes to the next fan, and a sweep running at the same moment never undoes their new hold. One sweep frees the whole stadium's lapsed seats, and four sweepers at once free each seat exactly once.
-- **Checkout and idempotency:**
-  - Same key sent twice in parallel: one charge, identical responses
+- **Checkout acceptance,** the six cases of requirements.md §9.1, in `checkout.test.ts` through the real payment client and mock. They passed 20 runs in a row.
+  - Same key sent twice in parallel: one charge. The second gets `409 REQUEST_IN_PROGRESS`, retries with the same key, and ends with the same answer as the first
   - Provider loses the response and the client retries: still one charge
-  - Same key, different body: `422`
+  - Same key with a different body, or for another hold: `422`
   - Two tabs, two keys, one hold: one `200`, one `409`, one charge
   - A decline returns `402`; a retry with a new key can succeed
   - The hold expires and another fan takes the seat: `409`, no charge
@@ -449,7 +449,7 @@ Changes reach `main` only through a pull request, and both jobs must pass on a b
 | --- | --- | --- |
 | `hot-seat` | 1,000 virtual users send 10,000 holds for seat 42 | Exactly one hold succeeds |
 | `sellout` | 10,000 hold-then-checkout journeys across 2,000 seats, 70% aimed at the Lateral stands | The audit passes |
-| `double-click` | Every fan sends the same checkout twice in parallel with one key | One successful charge per order |
+| `double-click` | Every fan sends the same checkout twice in parallel with one key, retrying a `409 REQUEST_IN_PROGRESS` | One successful charge per order |
 | `churn` | Fans hold and abandon; others retry after expiry | Expired seats are resold; the audit passes |
 
 ```bash
@@ -483,7 +483,7 @@ These numbers compare strategies on one laptop. They are not a production capaci
 - **Hand-written SQL, no ORM.** Every lock is visible in the code and easy to review. ([ADR 2](docs/adr/0002-hand-written-sql.md))
 - **One lock order.** Seats are always locked in ascending id order, so overlapping holds queue instead of deadlocking. ([ADR 3](docs/adr/0003-lock-ordering.md))
 - **Lazy expiry.** Queries treat `held_until < now()` as free, so correctness never waits for the sweeper.
-- **No locks across network calls.** Checkout is three short steps around the payment call, so a slow provider can't freeze a queue of fans.
+- **No locks across network calls.** Checkout is three short steps around the payment call, so a slow provider can't freeze a queue of fans. ([ADR 4](docs/adr/0004-three-step-checkout.md))
 - **The database clock decides expiry.** Always `now()` in Postgres, never the API server's clock.
 - **Money is integer paise.** No floating point anywhere near a price.
 
@@ -492,6 +492,7 @@ The longer reasoning, with the alternatives that were rejected, is in the [archi
 1. [Postgres is the source of truth](docs/adr/0001-postgres-is-the-source-of-truth.md)
 2. [Hand-written SQL, no ORM](docs/adr/0002-hand-written-sql.md)
 3. [Lock seats in ascending id order](docs/adr/0003-lock-ordering.md)
+4. [Check out in three steps around the payment call](docs/adr/0004-three-step-checkout.md)
 
 ## Known limitations
 
