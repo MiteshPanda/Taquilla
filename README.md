@@ -172,7 +172,7 @@ sequenceDiagram
 | API | Node.js (LTS), TypeScript, Express, Zod |
 | Database | PostgreSQL 16 via `pg`, with hand-written SQL |
 | Payments | Mock provider service with fault injection |
-| Tests | Vitest |
+| Tests | Vitest; jsdom and Testing Library for the web page |
 | Load testing | k6 |
 | Frontend | React + Vite |
 | Infra | Docker Compose, GitHub Actions |
@@ -203,7 +203,7 @@ To run the expiry sweeper alongside it, use `docker compose up -d sweeper`, or `
 
 To run the payment mock, use `docker compose up -d payments-mock`, which creates its `payments` schema and then listens on `127.0.0.1:4000`. On the host, run `npm run migrate` once, then `npm run payments`.
 
-To run the web page, use `npm run web` on the host. It serves the page at http://localhost:5173, which for now shows whether the API at `VITE_API_URL` answers `/health`. Until WP 8.1 adds its container, `docker compose up` doesn't start it.
+To run the web page, use `npm run web` on the host. It serves the page at http://localhost:5173, where you can sign up, log in, or press **Log in as demo fan** to log in as a random seeded fan (after `npm run reset`). It also shows whether the API at `VITE_API_URL` answers `/health`. Until WP 8.1 adds its container, `docker compose up` doesn't start it.
 
 To run only the database, use `docker compose up -d postgres`. It creates `taquilla` and `taquilla_test`, and listens on `127.0.0.1:5432`. The init script runs only on an empty volume, so `docker compose down -v` is how you start again from nothing; it deletes all local data.
 
@@ -223,7 +223,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `npm run web` | Start the web page's dev server on port 5173 |
 | `npm run build` | Type-check the web page and build it into `web/dist`; any warning fails the build |
 | `npm test` | Run the concurrency, race, expiry, checkout and web client test suites |
-| `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout`, `idempotency`, the payment mock's charge logic and the web's API client |
+| `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout`, `idempotency`, the payment mock's charge logic, and the web's API client and login |
 | `npm run lint` | Run ESLint with type-checked rules; any warning fails |
 | `npm run format` | Format the code with Prettier (`npm run format:check` only checks it) |
 | `npm run typecheck` | Type-check every package with TypeScript in `strict` mode |
@@ -257,6 +257,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
 | `VITE_API_URL` | `http://localhost:3000` | Web: the API's address. Vite bakes it into the build, so a change needs a rebuild |
+| `VITE_DEMO_PASSWORD` | `taquilla-dev` | Web: the seeded fans' password (`SEED_PASSWORD`) for **Log in as demo fan**. It ends up in the page, so use it only for shared demo accounts |
 
 The web page reads the same `.env`. Vite passes only `VITE_` variables to the browser, so the API's secrets in that file never reach it.
 
@@ -442,7 +443,8 @@ npm test
 - **Concurrency:** through a real HTTP server, for every strategy: 100 parallel holds on one seat produce exactly one winner and 99 `409`s; overlapping multi-seat holds asked in opposite orders never get a `5xx`, and under `lock` never even wait long enough to get `SEAT_BUSY`; and a four-seat hold racing for its last seat is held whole or not at all. The suite passed 20 runs in a row.
 - **Race:** 100 parallel naive buys of seat 42, at `RACE_DELAY_MS=0` and `50`. At 50, the check that only one buyer wins is marked `it.fails`, so it documents the bug without breaking CI, and turns CI red if the naive buy ever stops overselling. At 0 the count is only recorded, because whether the requests overlap depends on the machine. A separate check makes sure each race ran cleanly, with no `5xx`.
 - **Expiry:** end to end with `HOLD_SECONDS=2`, a hold lasts 2 seconds, then its seats show as free and another fan can take them before any sweep, and the sweeper frees the rest. Under every strategy, a lapsed seat goes to the next fan, and a sweep running at the same moment never undoes their new hold. One sweep frees the whole stadium's lapsed seats, and four sweepers at once free each seat exactly once.
-- **Web API client:** every error answer becomes an `ApiError` with its status, code, message, seats and request ID, for each of the 16 codes. An error page that isn't JSON, an unknown code and a body the schema refuses become `BAD_RESPONSE`; no answer becomes `NETWORK_ERROR`, and no full answer within 30 seconds (5 for `/health`), `TIMEOUT`. A cancel by the page itself is passed on as it is. Against the real API app over HTTP, the client calls `/health`, its body, token and key reach the server's parser, the server's errors arrive intact, and CORS lets the page send its headers and read the request ID. `npm run typecheck` fails if the web's error codes and the server's ever differ.
+- **Web API client:** every error answer becomes an `ApiError` with its status, code, message, seats and request ID, for each of the 16 codes. An error page that isn't JSON, an unknown code and a body the schema refuses become `BAD_RESPONSE`; no answer becomes `NETWORK_ERROR`, and no full answer within 30 seconds (5 for `/health`), `TIMEOUT`. A cancel by the page itself is passed on as it is. Against the real API app over HTTP, the client calls `/health`, its body, token and key reach the server's parser, the server's errors arrive intact, and CORS lets the page send its headers and read the request ID. `npm run typecheck` fails if the web's error codes and the server's ever differ. A `401` to a request that carried a token ends the session; a `401` to a login doesn't. Through the real auth routes, sign-up and login work, the token passes `requireAuth`, and the page can read its expiry.
+- **Web login:** in jsdom, the sign-up and login forms refuse what the API refuses, in its words, before sending anything, including a password of 37 `é`, which is 74 bytes. They send the email as the API stores it, sign up then log straight in, and show the API's refusals: a wrong password, a taken email, a rate limit, or no connection. The form locks while it waits. **Log in as demo fan** logs in as a random seeded fan, and explains how to seed them when the API doesn't know them. The session goes in `sessionStorage` and never `localStorage`; a reload keeps it, logging out clears it, and an expired token, whether found at load or reached while the page is open, sends the fan back to login with a notice. A token longer than `setTimeout`'s limit is waited out in steps. The sign-up and login rules live in one file both sides import, `api/src/auth/rules.ts`, and the web typecheck fails if it ever uses a Node API.
 - **Checkout acceptance,** the six cases of requirements.md §9.1, in `checkout.test.ts` through the real payment client and mock. They passed 20 runs in a row.
   - Same key sent twice in parallel: one charge. The second gets `409 REQUEST_IN_PROGRESS`, retries with the same key, and ends with the same answer as the first
   - Provider loses the response and the client retries: still one charge
@@ -563,6 +565,7 @@ These numbers compare strategies on one laptop. They are not a production capaci
 - **No locks across network calls.** Checkout is three short steps around the payment call, so a slow provider can't freeze a queue of fans. ([ADR 4](docs/adr/0004-three-step-checkout.md))
 - **The database clock decides expiry.** Always `now()` in Postgres, never the API server's clock.
 - **Money is integer paise.** No floating point anywhere near a price.
+- **The login token lives in `sessionStorage`.** A reload keeps the fan logged in, each tab can be a different fan, and nothing outlives the tab. Moving it to an httpOnly cookie is the planned upgrade. ([ADR 5](docs/adr/0005-session-token-in-sessionstorage.md))
 
 The longer reasoning, with the alternatives that were rejected, is in the [architecture decision records](docs/adr/):
 
@@ -570,6 +573,7 @@ The longer reasoning, with the alternatives that were rejected, is in the [archi
 2. [Hand-written SQL, no ORM](docs/adr/0002-hand-written-sql.md)
 3. [Lock seats in ascending id order](docs/adr/0003-lock-ordering.md)
 4. [Check out in three steps around the payment call](docs/adr/0004-three-step-checkout.md)
+5. [Keep the login token in sessionStorage](docs/adr/0005-session-token-in-sessionstorage.md)
 
 ## Known limitations
 
@@ -599,7 +603,7 @@ taquilla/
 │   │   ├── migrate.ts       # migration runner
 │   │   ├── migrate-cli.ts   # npm run migrate
 │   │   ├── server.ts
-│   │   ├── auth/            # signup, login, JWT middleware
+│   │   ├── auth/            # signup, login, JWT middleware; rules.ts is shared with the web page
 │   │   ├── seats/           # seat map with lazy expiry
 │   │   ├── holds/           # lock, cas and serializable strategies
 │   │   ├── checkout/        # reserve → charge → confirm; payment-client.ts calls the provider
@@ -619,8 +623,10 @@ taquilla/
 ├── web/                     # React + Vite seat map
 │   ├── src/
 │   │   ├── api/             # typed API client: every error answer becomes an ApiError
-│   │   ├── config.ts        # VITE_API_URL, checked by the build and by the page
-│   │   └── App.tsx          # the page; for now, whether the API is up
+│   │   ├── auth/            # login and sign-up forms, the demo fan, the tab's session
+│   │   ├── config.ts        # VITE_API_URL and VITE_DEMO_PASSWORD, checked by the build and the page
+│   │   ├── services.ts      # the client and session the page runs on, wired together
+│   │   └── App.tsx          # the page: login, or who is logged in
 │   └── test/
 ├── loadtest/                # k6 scenarios
 ├── scripts/                 # reset, seed, tokens, audit

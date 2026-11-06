@@ -36,3 +36,91 @@ main {
 .api-status-down {
   color: light-dark(#b42318, #ff8a7a);
 }
+
+.masthead {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+}
+
+.masthead h1 {
+  margin: 0;
+}
+
+.account {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.auth {
+  max-width: 24rem;
+}
+
+.auth fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.field {
+  margin-bottom: 1rem;
+}
+
+.field label {
+  display: block;
+  font-weight: 600;
+}
+
+.field input {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 0.5rem;
+  font: inherit;
+}
+
+.field input[aria-invalid='true'] {
+  border: 2px solid light-dark(#b42318, #ff8a7a);
+}
+
+.field-error,
+.form-error {
+  margin: 0.25rem 0 0;
+  color: light-dark(#b42318, #ff8a7a);
+}
+
+.form-error {
+  margin-bottom: 1rem;
+}
+
+.notice {
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid currentColor;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+button.link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: LinkText;
+  text-decoration: underline;
+}
+
+button:disabled {
+  cursor: progress;
+}

@@ -1,33 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { createApiClient, HEALTH_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from '../src/api/client.js';
-import type { Fetch } from '../src/api/client.js';
 import { ApiError, SERVER_ERROR_CODES } from '../src/api/errors.js';
+import type { Call } from './helpers.js';
+import { bodyOf, fakeFetch, json } from './helpers.js';
 
 const BASE_URL = 'http://api.test/v1';
-
-interface Call {
-  url: string;
-  init: RequestInit;
-}
-
-// A fetch that records each call and answers it with `answer`.
-function fakeFetch(answer: (call: Call) => Response | Promise<Response>) {
-  const calls: Call[] = [];
-  const fetch: Fetch = async (url, init) => {
-    const call = { url, init };
-    calls.push(call);
-    return answer(call);
-  };
-  return { calls, fetch };
-}
-
-function json(status: number, body: unknown, headers: Record<string, string> = {}): Response {
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { 'Content-Type': 'application/json', ...headers },
-  });
-}
 
 function signalOf(call: Call): AbortSignal {
   if (!call.init.signal) throw new Error('The client sent no signal.');
@@ -301,5 +279,91 @@ describe("the caller's own cancel", () => {
     const api = createApiClient({ baseUrl: BASE_URL, fetch });
 
     await expect(api.health(AbortSignal.abort())).rejects.toMatchObject({ name: 'AbortError' });
+  });
+});
+
+describe('the auth calls', () => {
+  const credentials = { email: 'fan7@taquilla.test', password: 'correct horse' };
+
+  it('logs in with a POST to /auth/login and resolves with the token', async () => {
+    const { calls, fetch } = fakeFetch(() => json(200, { token: 'a.b.c' }));
+
+    await expect(createApiClient({ baseUrl: BASE_URL, fetch }).logIn(credentials)).resolves.toBe(
+      'a.b.c',
+    );
+
+    expect(calls[0]?.url).toBe('http://api.test/v1/auth/login');
+    expect(calls[0]?.init.method).toBe('POST');
+    expect(bodyOf(calls[0])).toEqual(credentials);
+    expect(headersOf(calls[0]).has('authorization')).toBe(false);
+  });
+
+  it('refuses a login answer without a token', async () => {
+    const { fetch } = fakeFetch(() => json(200, { token: '' }));
+
+    await expect(
+      createApiClient({ baseUrl: BASE_URL, fetch }).logIn(credentials),
+    ).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
+  });
+
+  it('signs up with a POST to /auth/signup and resolves with the new fan', async () => {
+    const { calls, fetch } = fakeFetch(() => json(201, { id: 1001, email: credentials.email }));
+
+    await expect(
+      createApiClient({ baseUrl: BASE_URL, fetch }).signUp(credentials),
+    ).resolves.toEqual({ id: 1001, email: credentials.email });
+
+    expect(calls[0]?.url).toBe('http://api.test/v1/auth/signup');
+    expect(calls[0]?.init.method).toBe('POST');
+    expect(bodyOf(calls[0])).toEqual(credentials);
+  });
+});
+
+describe('a refused token', () => {
+  const REFUSED = { error: { code: 'UNAUTHORIZED', message: 'Log in again.' } };
+
+  function client(answer: () => Response) {
+    const onUnauthorized = vi.fn();
+    const { fetch } = fakeFetch(answer);
+    return { api: createApiClient({ baseUrl: BASE_URL, fetch, onUnauthorized }), onUnauthorized };
+  }
+
+  it('calls onUnauthorized once, then still rejects with the ApiError', async () => {
+    const { api, onUnauthorized } = client(() => json(401, REFUSED));
+
+    await expect(api.request('/orders/x', z.unknown(), { token: 'a.b.c' })).rejects.toMatchObject({
+      status: 401,
+      code: 'UNAUTHORIZED',
+    });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it('calls it even when the 401 is not in the API’s shape', async () => {
+    const { api, onUnauthorized } = client(() => new Response('Unauthorized', { status: 401 }));
+
+    await expect(api.request('/orders/x', z.unknown(), { token: 'a.b.c' })).rejects.toMatchObject({
+      code: 'BAD_RESPONSE',
+    });
+    expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not called for a 401 to a request sent without a token, such as a wrong password', async () => {
+    const { api, onUnauthorized } = client(() => json(401, REFUSED));
+
+    await expect(
+      api.logIn({ email: 'fan7@taquilla.test', password: 'wrong' }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+
+  it('is not called for any other refusal of a request with a token', async () => {
+    const { api, onUnauthorized } = client(() =>
+      json(404, { error: { code: 'NOT_FOUND', message: 'Not found.' } }),
+    );
+
+    await expect(api.request('/orders/x', z.unknown(), { token: 'a.b.c' })).rejects.toMatchObject({
+      code: 'NOT_FOUND',
+    });
+    expect(onUnauthorized).not.toHaveBeenCalled();
   });
 });

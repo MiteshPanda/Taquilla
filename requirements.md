@@ -291,7 +291,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, eslint-plugin-react-hooks, prettier, husky, lint-staged, @types/node |
 | `api` | express, helmet, cors, express-rate-limit, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/cors, @types/pg, @types/jsonwebtoken, @types/supertest |
 | `payments-mock` | express, pg, pino, pino-http, zod | tsx, @types/express, @types/pg |
-| `web` | react, react-dom, zod | vite, @vitejs/plugin-react, @types/react, @types/react-dom |
+| `web` | react, react-dom, zod | vite, @vitejs/plugin-react, @types/react, @types/react-dom, jsdom, @testing-library/react, @testing-library/dom |
 | `loadtest` | k6, a standalone binary rather than an npm package | None |
 
 Install the current stable versions and commit `package-lock.json`, so every install is reproducible. TypeScript stays on 6.0 until typescript-eslint supports a newer major version.
@@ -321,6 +321,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
 | `VITE_API_URL` | `http://localhost:3000` | Web: the API's address, baked into the build; an `http` or `https` URL with no query or fragment |
+| `VITE_DEMO_PASSWORD` | `taquilla-dev` | Web: the seeded fans' password (`SEED_PASSWORD`) for the demo login; at least 8 characters, and readable by anyone with the page |
 
 ## 9. Verification and acceptance
 
@@ -354,6 +355,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | INV-2 | k6 `double-click`, then the audit | Both clicks end with the same answer, and no order has two successful charges |
 | FR-EXP-2, INV-4 | k6 `churn` with `HOLD_SECONDS=10`, then the audit | Every seat sold was an expired hold resold, and the audit exits with code 0 right after and 45 seconds later |
 | §6.2, §6.3 (the web's API client) | `web/test/client.test.ts`, `api/test/web-client.test.ts` | Every error answer becomes a typed error with its code, status and seats, also through the real API app; anything else becomes a network, timeout or bad-response error; and the typecheck fails if the web's codes and the server's differ |
+| FR-AUTH-1, FR-AUTH-2 (the web page) | `web/test/App.test.tsx`, `web/test/session.test.ts`, `web/test/services.test.ts`, `api/test/auth-rules.test.ts`, `api/test/web-client.test.ts` | The forms refuse what the API refuses, in its words, using the same rules file; sign-up, login and the demo login work against the real routes; the token is kept in `sessionStorage` only; and an expired or refused token sends the fan back to login (ADR 5) |
 | NFR-12 | GitHub Actions | The workflow is green on every push |
 
 ### 9.1 Checkout acceptance cases
@@ -431,3 +433,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.27 | 7 Nov 2026 | The `churn` verification row: short holds, and an audit 45 seconds after the run |
 | 0.28 | 7 Nov 2026 | NFR-3: the measured hot-seat latency per strategy and what limits it |
 | 0.29 | 7 Nov 2026 | The web scaffold: `VITE_API_URL`, the web's dependencies (zod, React types, the hooks lint rules), and the verification row for its API client |
+| 0.30 | 7 Nov 2026 | The web login: `VITE_DEMO_PASSWORD`, the web's test dependencies (jsdom, Testing Library), and the verification row for FR-AUTH-1 and FR-AUTH-2 in the page |
