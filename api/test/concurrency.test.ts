@@ -13,6 +13,7 @@ import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { createRoutes } from '../src/routes.js';
 import { schemaConnectionString } from './helpers/database.js';
+import { NO_PAYMENTS } from './helpers/payments.js';
 
 // FR-HOLD-4: when many fans want the same seats at once, exactly one gets each seat and everyone
 // else gets a 409, never a 5xx, under every strategy. Requests go through a real HTTP server with
@@ -124,7 +125,7 @@ describe.each(BOOKING_STRATEGIES)('under the %s strategy', { timeout: 30_000 }, 
     const app = createApp({
       config: { CORS_ORIGINS: [] },
       logger,
-      routes: createRoutes({ db, config, holdStrategy }),
+      routes: createRoutes({ db, config, holdStrategy, payments: NO_PAYMENTS }),
     });
     server = app.listen(0);
     await once(server, 'listening');

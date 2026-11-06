@@ -20,10 +20,12 @@ const providerError = z.object({ error: z.object({ code: z.string(), message: z.
 
 export type ProviderCharge = z.output<typeof providerCharge>;
 
-// unavailable: every attempt failed, so the charge may or may not exist. Retrying with the same
-// key later is always safe, and finds out (FR-PAY-12).
+// refunded: this key's charge was made and then refunded by an earlier attempt, which may have
+// crashed before it could record that. unavailable: every attempt failed, so the charge may or
+// may not exist. Retrying with the same key later is always safe, and finds out (FR-PAY-12).
 export type ChargeResult =
-  { status: 'succeeded' | 'declined'; charge: ProviderCharge } | { status: 'unavailable' };
+  | { status: 'succeeded' | 'declined' | 'refunded'; charge: ProviderCharge }
+  | { status: 'unavailable' };
 
 export type RefundResult =
   { status: 'refunded'; charge: ProviderCharge } | { status: 'unavailable' };
@@ -211,10 +213,6 @@ export function createPaymentClient({
         (status, body) => {
           if (status !== 200 && status !== 201) throw refusal('charge', status, body, key);
           const charge = parseCharge(status, body, key);
-          // Only a charge that was refunded earlier comes back like this, and it can't pay again.
-          if (charge.status === 'refunded') {
-            throw new PaymentProviderError(`The charge for ${key} was already refunded.`, status);
-          }
           return { status: charge.status, charge };
         },
         logger,

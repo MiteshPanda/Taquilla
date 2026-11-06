@@ -14,6 +14,7 @@ import { runMigrations } from '../src/migrate.js';
 import { createRoutes } from '../src/routes.js';
 import { MAX_INT } from '../src/validation.js';
 import { schemaConnectionString } from './helpers/database.js';
+import { NO_PAYMENTS } from './helpers/payments.js';
 
 const SCHEMA = 'holds_route_probe';
 const CONNECTION_STRING = schemaConnectionString(SCHEMA);
@@ -79,7 +80,7 @@ describe.each(BOOKING_STRATEGIES)('POST /events/:id/holds with the %s strategy',
     app = createApp({
       config: { CORS_ORIGINS: [] },
       logger,
-      routes: createRoutes({ db, config, holdStrategy }),
+      routes: createRoutes({ db, config, holdStrategy, payments: NO_PAYMENTS }),
     });
   });
 

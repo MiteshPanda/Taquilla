@@ -18,6 +18,7 @@ import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { createRoutes } from '../src/routes.js';
 import { schemaConnectionString } from './helpers/database.js';
+import { NO_PAYMENTS } from './helpers/payments.js';
 
 const SCHEMA = 'tokens_probe';
 const CONNECTION_STRING = schemaConnectionString(SCHEMA);
@@ -170,7 +171,7 @@ describe('every token authenticates against the API', { timeout: 30_000 }, () =>
     const app = createApp({
       config: { CORS_ORIGINS: [] },
       logger,
-      routes: createRoutes({ db, config, holdStrategy }),
+      routes: createRoutes({ db, config, holdStrategy, payments: NO_PAYMENTS }),
     });
     server = app.listen(0);
     await once(server, 'listening');

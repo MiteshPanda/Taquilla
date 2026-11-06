@@ -16,6 +16,7 @@ import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { createRoutes } from '../src/routes.js';
 import { schemaConnectionString } from './helpers/database.js';
+import { NO_PAYMENTS } from './helpers/payments.js';
 
 const SCHEMA = 'idempotency_probe';
 const CONNECTION_STRING = schemaConnectionString(SCHEMA);
@@ -416,7 +417,7 @@ describe('POST /events/:id/holds with an Idempotency-Key', () => {
     app = createApp({
       config: { CORS_ORIGINS: [] },
       logger,
-      routes: createRoutes({ db, config, holdStrategy }),
+      routes: createRoutes({ db, config, holdStrategy, payments: NO_PAYMENTS }),
     });
   });
 

@@ -15,6 +15,7 @@ import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { createRoutes } from '../src/routes.js';
 import { schemaConnectionString } from './helpers/database.js';
+import { NO_PAYMENTS } from './helpers/payments.js';
 
 // FR-EXP-1 to FR-EXP-4 and INV-4: a hold ends on time without waiting for anything. A lapsed seat
 // is free to the next fan at once, and the sweeper tidies up after, never undoing a newer hold.
@@ -41,7 +42,7 @@ function appFor(strategy: BookingStrategy, holdSeconds: number) {
   return createApp({
     config: { CORS_ORIGINS: [] },
     logger,
-    routes: createRoutes({ db, config, holdStrategy }),
+    routes: createRoutes({ db, config, holdStrategy, payments: NO_PAYMENTS }),
   });
 }
 

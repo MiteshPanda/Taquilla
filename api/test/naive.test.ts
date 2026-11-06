@@ -11,6 +11,7 @@ import { runMigrations } from '../src/migrate.js';
 import { createHoldStrategy } from '../src/holds/strategies.js';
 import { createRoutes } from '../src/routes.js';
 import { schemaConnectionString } from './helpers/database.js';
+import { NO_PAYMENTS } from './helpers/payments.js';
 
 const SCHEMA = 'naive_probe';
 const CONNECTION_STRING = schemaConnectionString(SCHEMA);
@@ -39,6 +40,7 @@ function app(overrides: Partial<Pick<Config, 'NODE_ENV' | 'RACE_DELAY_MS'>> = {}
       db,
       config,
       holdStrategy: createHoldStrategy('lock', { db, holdSeconds: 300, logger }),
+      payments: NO_PAYMENTS,
     }),
   });
 }
