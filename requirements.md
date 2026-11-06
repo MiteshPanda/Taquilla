@@ -340,6 +340,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-EXP-3 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, and the process stops with exit code 0 on `SIGTERM` |
 | FR-EXP-1 to FR-EXP-4, INV-4 | `api/test/expiry.test.ts`, one test with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan before any sweep, a sweep never undoes a newer hold, and four sweepers at once free each seat exactly once |
 | FR-MOCK-1 to FR-MOCK-5, DR-9 | `payments-mock/test/*.test.ts` | A repeated key returns the original charge, also when 20 first attempts race; one order can be charged under two keys; a refund is safe to repeat; and every fault hits first attempts only |
+| FR-PAY-11, FR-PAY-12, NFR-6 | `api/test/checkout-recovery.test.ts` | A lost answer, a provider slower than every timeout, an outage and a crash each end, after a retry with the same key, in a completed order and exactly one charge |
 | FR-PAY-1, FR-PAY-3, FR-PAY-8 to FR-PAY-10 | `api/test/checkout-route.test.ts` | Through the real payment mock: one charge then one ticket per seat; no lock held while charging; a decline answers `402` and a new key pays; lost seats are refunded and the rest freed, also after a failed or unrecorded refund |
 | FR-PAY-2, FR-PAY-4 to FR-PAY-6, FR-PAY-11 (Reserve) | `api/test/reserve.test.ts` | A valid hold gets one `paying` order and seats extended to 10 minutes; a re-taken, lapsed or released hold gets `409 HOLD_EXPIRED` and no order; a paid order is returned untouched; another key gets `409 PAYMENT_IN_PROGRESS`; 20 tabs at once make one order |
 | FR-IDEM-1 to FR-IDEM-7, FR-PAY-1 | `api/test/idempotency.test.ts` | Every branch of the middleware, including ten identical requests at once running once and a stale request that finishes after its key was taken over |
@@ -418,3 +419,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.19 | 6 Nov 2026 | Idempotency: the key format (FR-IDEM-1), the replay header (FR-IDEM-3), `SEAT_BUSY` also releases a key (FR-IDEM-6), and the verification row |
 | 0.20 | 6 Nov 2026 | Reserve: FR-PAY-5 extends to at least 10 minutes from now, FR-PAY-11 resumes even after lost seats, and the verification row |
 | 0.21 | 6 Nov 2026 | Charge and Confirm: the checkout's `200` body, FR-PAY-9's freed seats and failed refunds, and the verification row |
+| 0.22 | 6 Nov 2026 | Added the verification row for resume and outage paths (FR-PAY-11, FR-PAY-12, NFR-6) |
