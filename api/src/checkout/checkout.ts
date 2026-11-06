@@ -71,6 +71,11 @@ export async function checkout(
   }
   const payment: PaymentRef = { order: reserved.order, paymentKey: reserved.paymentKey };
   const { order, paymentKey } = payment;
+  // The same attempt again after a timeout, an outage or a crash (FR-PAY-11, NFR-6). The
+  // provider key is the same, so the Charge step gets back whatever the first one made.
+  if (reserved.resumed) {
+    logger.info({ orderId: order.id }, 'resuming a payment with the same key');
+  }
 
   const charged = await payments.charge(
     { key: paymentKey, orderId: order.id, amountPaise: order.amountPaise },
