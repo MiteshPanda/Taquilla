@@ -272,13 +272,16 @@ describe('against the payment mock', () => {
     });
   });
 
-  it('throws when a key comes back already refunded, because it cannot pay again', async () => {
+  it('reports a key whose charge was already refunded, so checkout can finish as refunded', async () => {
     const payments = client({ baseUrl: await mockWith({}) });
     const request = charge();
     await payments.charge(request);
     await payments.refund(request.key);
 
-    await expect(payments.charge(request)).rejects.toThrow('was already refunded');
+    const again = await payments.charge(request);
+
+    expect(again).toMatchObject({ status: 'refunded', charge: { key: request.key } });
+    expect(await countCharges(pool)).toBe(1);
   });
 
   it('reports a refund to an unreachable provider as unavailable', async () => {

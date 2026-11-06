@@ -11,6 +11,7 @@ import { runMigrations } from '../src/migrate.js';
 import { createHoldStrategy } from '../src/holds/strategies.js';
 import { createRoutes } from '../src/routes.js';
 import { schemaConnectionString } from './helpers/database.js';
+import { NO_PAYMENTS } from './helpers/payments.js';
 
 // FR-DEV-1: the naive buy checks a seat and then writes, so parallel buyers can all pass the check.
 // This file keeps that bug on record. The it.fails test states the rule the naive buy breaks: it
@@ -56,6 +57,7 @@ async function race(raceDelayMs: number): Promise<RaceResult> {
       db,
       config,
       holdStrategy: createHoldStrategy('lock', { db, holdSeconds: 300, logger }),
+      payments: NO_PAYMENTS,
     }),
   });
   const server = app.listen(0);

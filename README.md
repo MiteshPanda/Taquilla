@@ -160,7 +160,9 @@ sequenceDiagram
 - Each provider call gets 3 seconds and up to 3 retries, all with the same provider key, so a retry can never charge twice. Waits between attempts grow from up to 100 ms to up to 400 ms, at random, so retries don't all arrive together. A timeout, a dropped connection or a `5xx` is retried; a `4xx` means a bug, so it isn't.
 - Same key again: the saved response is replayed. Same key with a different body: `422`. Same key while the first request is still running: `409`. An answer that says "try again" (`5xx` or `SEAT_BUSY`) isn't saved, so the retry runs again.
 - If the server crashes mid-payment, a retry with the same key resumes at the charge step and gets the original result back.
-- If the seats were lost before confirmation, the charge is refunded and the fan gets `409`.
+- Confirm, in one transaction, sells every seat, issues one ticket per seat, and marks the order `paid` and the hold `converted`, or does none of it.
+- A decline answers `402`, sets the order back to `pending` and keeps the seats held, so the fan can pay again with a new key.
+- If the seats were lost before confirmation, the charge is refunded, the order is marked `refunded`, any seats the hold still has are freed, and the fan gets `409 SEAT_LOST_REFUNDED` naming the lost seats. If the refund itself can't get through, the fan gets `503` and the order stays `paying`, so a retry with the same key finishes the refund.
 
 ## Tech stack
 
@@ -310,7 +312,7 @@ curl -X POST localhost:4000/charges \
 | `GET` | `/events/:id/seats` | None | Seat map with live state | `200` | `404` |
 | `POST` | `/events/:id/holds` | JWT | Hold 1–6 seats, all or nothing; `Idempotency-Key` optional | `201` | `400`, `401`, `404`, `409`, `422` |
 | `DELETE` | `/holds/:id` | JWT | Release a hold early | `204` | `401`, `404` |
-| `POST` | `/holds/:id/checkout` | JWT | Reserve, charge, confirm; `Idempotency-Key` required | `200` | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
+| `POST` | `/holds/:id/checkout` | JWT | Reserve, charge, confirm; `Idempotency-Key` required | `200` with the paid order and its tickets | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
 | `GET` | `/orders/:id` | JWT | Order with its tickets | `200` | `401`, `404` |
 | `POST` | `/dev/buy-naive` | JWT | Dev only: the deliberately unsafe buy, `{ "seatId": 42 }` | `201` | `400`, `401`, `404`, `409` |
 
@@ -341,6 +343,21 @@ curl -s localhost:3000/events/1/holds \
 curl -s -X POST localhost:3000/holds/$HOLD_ID/checkout \
   -H "Authorization: Bearer $TOKEN" \
   -H "Idempotency-Key: $(uuidgen)"
+```
+
+A paid checkout answers with the order and one ticket per seat. Checking out an order that is already paid, with any key, answers the same without charging again:
+
+```json
+{
+  "orderId": "1a943714-35f4-4de0-8a51-ec5785481bbb",
+  "holdId": "54a48b79-c360-49d3-9440-3362d8253ae7",
+  "status": "paid",
+  "amountPaise": 900000,
+  "tickets": [
+    { "id": 1, "seatId": 41 },
+    { "id": 2, "seatId": 42 }
+  ]
+}
 ```
 
 The seat map lists every seat in section, row and seat order, and is sent with `Cache-Control: no-store`. A seat whose hold has lapsed already reads `available`:
@@ -397,6 +414,7 @@ npm test
 - **Holds:** each strategy holds free seats until a database-clock expiry, refuses taken and sold seats with `409` and holds nothing, gives a lapsed hold's seat to the next fan, and rejects seats outside the event with `400`.
 - **Holds route:** `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and Postgres contention errors become `409 SEAT_BUSY` as requirements.md §6.4 maps them.
 - **Sweeper:** one run frees every lapsed seat in batches of 1,000 and nothing else, steps past seats a booking has locked, never overlaps the previous run, keeps going after a failed run, and stops cleanly on `SIGTERM`.
+- **Checkout route:** through the real payment mock, a payment charges once, sells the seats, issues one ticket each and converts the hold. The same key replays, a new key gets the paid order without a charge, and 10 tabs at once make one charge. No seat, hold or order lock is held while the provider works. A decline answers `402`, the order goes back to `pending`, and a new key pays. Seats lost while charging are refunded, with the rest of the hold freed, also when a seat merely lapsed. A failed refund answers `503` and the same key finishes it, and a refund that was never recorded still ends as `refunded`, never as a sale. An expired hold is never charged, an unreachable provider answers `503`, and a missing key, someone else's hold and a malformed id are refused.
 - **Reserve:** a valid hold gets one order, set `paying` under `pay:{orderId}:{key}`, with its seats extended to 10 minutes and never shortened. A re-taken, lapsed or released hold gets `409 HOLD_EXPIRED` and no order. A paid order is returned untouched, another key gets `409 PAYMENT_IN_PROGRESS`, the same key resumes even if seats were lost, a declined order pays again under a new key, and a refunded one gets `409 SEAT_LOST_REFUNDED`. 20 tabs at once make one order. Reserve waits for a rival's seat lock and judges the seat as the rival left it, and it locks seats in ascending order.
 - **Idempotency:** every branch of the middleware: a first run saved under the key, a replay that doesn't run again, the same body with its keys in another order, `422` for another body or route, `409` while the first is running, ten identical requests at once running once, a released key after a `5xx` or `SEAT_BUSY`, a saved `4xx`, missing and malformed keys, keys kept apart per fan, and a key stuck for 59 and 61 seconds. A stale request that finishes while a newer one holds its key neither saves its answer nor releases the key. Through `POST /events/:id/holds`, a retried hold returns the same hold and ten at once make one.
 - **Payment client:** against the real mock, a success, a decline, a lost first response and a provider slower than the timeout each end in exactly one charge. An unreachable provider is reported as unavailable after 1 attempt and 3 retries. Against a scripted provider, `5xx` answers are retried with the same key, body and request ID, an attempt that gets no answer or stalls halfway through is cut off, and a refusal or an unexpected body is thrown without retrying.

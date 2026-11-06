@@ -1,4 +1,5 @@
 import { createApp } from './app.js';
+import { createPaymentClient } from './checkout/payment-client.js';
 import { loadConfig } from './config.js';
 import { createDatabase } from './db.js';
 import { createHoldStrategy } from './holds/strategies.js';
@@ -16,7 +17,12 @@ const holdStrategy = createHoldStrategy(config.BOOKING_STRATEGY, {
   logger,
 });
 logger.info({ strategy: holdStrategy.name }, 'booking strategy selected');
-const app = createApp({ config, logger, routes: createRoutes({ db, config, holdStrategy }) });
+const payments = createPaymentClient({ baseUrl: config.PAYMENTS_URL, logger });
+const app = createApp({
+  config,
+  logger,
+  routes: createRoutes({ db, config, holdStrategy, payments }),
+});
 
 if (devRoutesEnabled(config.NODE_ENV)) {
   logger.warn(
