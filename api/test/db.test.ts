@@ -251,6 +251,16 @@ describe('the pool', () => {
     await single.close();
   });
 
+  it('plans for data held in memory on every connection: random_page_cost 1.1 (WP 6.4)', async () => {
+    const outside = await db.pool.query<{ random_page_cost: string }>('SHOW random_page_cost');
+    const inside = await db.withTransaction((client) =>
+      client.query<{ random_page_cost: string }>('SHOW random_page_cost'),
+    );
+
+    expect(outside.rows[0]?.random_page_cost).toBe('1.1');
+    expect(inside.rows[0]?.random_page_cost).toBe('1.1');
+  });
+
   it('caps statements outside a transaction with the statement timeout', async () => {
     const { rows } = await db.pool.query<{ statement_timeout: string }>('SHOW statement_timeout');
 

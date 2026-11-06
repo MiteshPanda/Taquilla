@@ -45,9 +45,9 @@ export const options = {
   thresholds: {
     holds_won: ['count==1'], // exactly one fan gets seat 42
     http_req_failed: ['rate<0.001'], // no 5xx, no timeouts
-    // NFR-3's laptop baseline. Every virtual user sends its next request as soon as the last one
-    // answers, so latency is about 1,000 / requests per second: 1.8 to 2.2 s measured on an
-    // 8-thread laptop. WP 6.4 tunes it.
+    // NFR-3's laptop ceiling. Every virtual user sends its next request as soon as the last one
+    // answers, so latency is about 1,000 / requests per second: 1.19 to 1.48 s across the
+    // strategies on an 8-thread laptop (docs/benchmarks.md).
     http_req_duration: ['p(95)<2500'],
   },
   summaryTrendStats: ['avg', 'med', 'p(90)', 'p(95)', 'p(99)', 'max'],

@@ -11,7 +11,7 @@
 
 Taquilla (Spanish for *box office*) is a booking API where thousands of simulated fans fight for the same seats at a fictional stadium. Row locks decide every race, a partial unique index makes a second valid ticket for a seat impossible to store, and idempotency keys make sure a double-clicked **Pay** charges exactly once.
 
-> **Status:** in development. Values in `[brackets]` are placeholders until they're measured. The full specification lives in [requirements.md](requirements.md).
+> **Status:** in development. Every number below was measured; see [Benchmarks](#benchmarks). The full specification lives in [requirements.md](requirements.md).
 
 <!-- Add after Phase 7:
 ![Demo: pick seats, watch the hold timer, double-click Pay, see one charge](docs/demo.gif)
@@ -21,13 +21,13 @@ Taquilla (Spanish for *box office*) is a booking API where thousands of simulate
 
 | Metric | Result |
 | --- | --- |
-| Oversold seats in a sellout of [10,000] requests from [1,000] concurrent virtual users | [0] |
-| Duplicate charges in the same run | [0] |
-| Fans who got the hot seat, out of 10,000 requests for it | [1] |
-| p95 hold latency under load | [X] ms |
-| Throughput | [Y] requests/s |
+| Oversold seats in a sellout of 10,000 journeys (about 29,550 requests) from 1,000 concurrent virtual users | **0**, under every strategy |
+| Duplicate charges in the same runs | **0**; the audit passed after every run |
+| Fans who got the hot seat, out of 10,000 requests for it | **1**, under every strategy (the naive route sold it to 114 fans) |
+| p95 hold latency in the hot seat, 1,000 virtual users | 1,190 to 1,481 ms, by strategy |
+| Throughput in the hot seat | 684 to 866 requests/s, by strategy |
 
-Measured on [CPU, RAM, OS] with PostgreSQL 16, with k6 and the API on the same machine. Details in [Benchmarks](#benchmarks).
+Measured on an Intel Core i5-1135G7 (4 cores, 8 threads) with 8 GB of RAM and Windows 11, using PostgreSQL 16.15 in Docker, with k6 and the whole stack on the same machine. Details in [Benchmarks](#benchmarks).
 
 ## Why this exists
 
@@ -486,7 +486,7 @@ Measured on an Intel Core i5-1135G7 (4 cores, 8 threads), 8 GB of RAM and Window
 | `churn`, 700 fans for 80 s, `HOLD_SECONDS=10` | 24,400 | 0 | 642 seat holds abandoned; 424 of the stand's 500 seats resold in 212 orders, all after their holds expired. 415 of the abandoned holds were taken by the next fan before any sweep (lazy expiry), and the sweeper freed the other 227 | Pass right after, and again 45 s later, with no seat left held |
 | `double-click`, 1,000 fans | 4,120 | 0 | 1,040 double-clicked payments: every one had a click told `409 REQUEST_IN_PROGRESS` that then got the saved answer; 0 different answers; 995 orders paid | Pass: 995 charges, none twice |
 
-The sellout's holds took 1.25 s on average (p95 1.56 s). Its checkouts took 7.8 s (p95 8.9 s): the provider's own delay, plus waiting for one of the 20 database connections at each of a checkout's steps while 1,000 fans hold seats. WP 6.4 tunes that. Churn's 76 unsold seats were mostly single seats between sold pairs, which fans asking for two adjacent seats can't use. The 42 seats the sellout left unsold were still free when the last fans gave up picking at random, or were held by fans declined three times.
+The sellout's holds took 1.25 s on average (p95 1.56 s). Its checkouts took 7.8 s (p95 8.9 s): the provider's own delay, plus a turn at each of a checkout's steps on an API whose single thread 1,000 fans keep busy (see [Benchmarks](#benchmarks)). Churn's 76 unsold seats were mostly single seats between sold pairs, which fans asking for two adjacent seats can't use. The 42 seats the sellout left unsold were still free when the last fans gave up picking at random, or were held by fans declined three times.
 
 `npm run audit` checks the four rules directly in SQL and exits with code 1 on any violation, so CI and load-test runs fail loudly. It isn't `npm audit`, which is npm's own check of dependencies.
 
@@ -514,16 +514,35 @@ For `hot-seat`, start the API with the strategy you want (`BOOKING_STRATEGY`) an
 
 ## Benchmarks
 
-<!-- Fill in from your own runs. Reset the database before each one. -->
+Each run started from a freshly reset stadium. The full results, how they were taken, the CPU profile and the query plans are in [docs/benchmarks.md](docs/benchmarks.md).
+
+**Hot seat**, 10,000 hold requests for seat 42:
 
 | Strategy | Hot-seat winners | p95 hold latency (ms) | Requests/s | Retries or aborts |
 | --- | --- | --- | --- | --- |
-| naive (dev route) | TBD | TBD | TBD | TBD |
-| `lock` | TBD | TBD | TBD | TBD |
-| `cas` | TBD | TBD | TBD | TBD |
-| `serializable` | TBD | TBD | TBD | TBD |
+| naive (dev route) | 1 at `RACE_DELAY_MS=0`; **114** at `50` | 445; 409 | 2,346; 2,344 | none: it never waits on a lock |
+| `lock` | 1 | 1,481 | 684 | 0 `SEAT_BUSY` |
+| `cas` | 1 | 1,454 | 712 | 0 `SEAT_BUSY` |
+| `serializable` | 1 | 1,190 | 866 | 0 retries, 0 `SEAT_BUSY` |
 
-**Setup:** [CPU] · [RAM] · [OS] · PostgreSQL 16 in Docker · API pool of 20 connections · [1,000] virtual users · [10,000] requests · k6 and the API on one machine.
+**Sellout**, 10,000 hold-then-checkout journeys over 2,000 seats:
+
+| Strategy | Seats sold | Orders paid | Requests/s | Hold p95 (ms) | Checkout p95 (ms) | Retries or aborts | Audit |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `lock` | 1,959 | 1,145 | 653 | 1,521 | 8,429 | 0 `SEAT_BUSY` | Pass |
+| `cas` | 1,959 | 1,152 | 582 | 1,490 | 9,111 | 0 `SEAT_BUSY` | Pass |
+| `serializable` | 1,952 | 1,200 | 640 | 1,392 | 8,248 | 618 retries, 2 `SEAT_BUSY` | Pass |
+
+**Setup:** Intel Core i5-1135G7 (4 cores, 8 threads) · 8 GB of RAM · Windows 11 Home · PostgreSQL 16.15 in Docker · one API process with a pool of 20 connections · 1,000 virtual users · 10,000 requests (hot seat) or 10,000 journeys, about 29,550 requests (sellout) · the payment mock with its default faults · k6 2.3.0 and the whole stack on one machine.
+
+- **Every strategy gives exactly one hot-seat winner** and passes the audit after a sellout. The naive route oversells whenever its race window opens: here 114 times with `RACE_DELAY_MS=50`, and once at `0` (298 times in an earlier run on the same laptop).
+- **`serializable` is the fastest correct strategy in the hot seat.** Its reads take no row lock, so the losing requests don't queue on seat 42. In the sellout it paid for that with 618 retries where overlapping holds conflicted. **`cas` costs Postgres twice the CPU of `lock`**, because its `UPDATE` locks and re-checks the row on every request.
+- **The limit is the API's single Node.js thread.** It used about as much CPU time as each run's wall time, while Postgres used one or two of the eight threads. With every virtual user sending its next request as soon as the last one answers, latency is about 1,000 divided by requests per second. The next lever is more API processes, which the stateless API allows (NFR-7).
+- **Tuning from a CPU profile:**
+  - **JWTs:** a secret built into a key once, instead of on every request, cut the API's CPU per request by about 10%.
+  - **Postgres:** `random_page_cost = 1.1` lets it read the seat map straight from its index, in 0.6–0.7 ms instead of 2.3–2.8 ms.
+  - **Tried and reverted:** sending `BEGIN` and the transaction limits as one round trip made no measurable difference.
+- **On a laptop, repeated runs vary by up to about 20%,** as the machine heats up. Compare strategies within one batch.
 
 These numbers compare strategies on one laptop. They are not a production capacity claim.
 
@@ -592,7 +611,9 @@ taquilla/
 ├── web/                     # React + Vite seat map
 ├── loadtest/                # k6 scenarios
 ├── scripts/                 # reset, seed, tokens, audit
-├── docs/adr/                # architecture decision records
+├── docs/
+│   ├── adr/                 # architecture decision records
+│   └── benchmarks.md        # results, CPU profile, tuning and query plans
 ├── .github/                 # CI workflow, Dependabot, pull request template
 ├── docker-compose.yml
 ├── .env.example

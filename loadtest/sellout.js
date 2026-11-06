@@ -39,6 +39,8 @@ const PARTY_SIZES = [1, 1, 2, 2, 2, 2, 2, 3, 4, 4];
 
 const holdsWon = new Counter('holds_won');
 const seatsTaken = new Counter('hold_attempts_taken');
+// SEAT_BUSY: a lock wait timed out or a serializable transaction ran out of retries.
+const seatsBusy = new Counter('hold_attempts_busy');
 const leftWithoutSeats = new Counter('journeys_without_seats');
 const ordersPaid = new Counter('orders_paid');
 const seatsSold = new Counter('seats_sold');
@@ -100,7 +102,10 @@ function hold(headers) {
     });
     check(res, { 'hold: 201 or 409': (r) => r.status === 201 || r.status === 409 });
     if (res.status === 201) return res.json('holdId');
-    if (res.status === 409) seatsTaken.add(1);
+    if (res.status === 409) {
+      if (errorCode(res) === 'SEAT_BUSY') seatsBusy.add(1);
+      else seatsTaken.add(1);
+    }
   }
   return undefined;
 }
