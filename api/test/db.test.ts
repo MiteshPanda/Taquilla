@@ -1,3 +1,4 @@
+import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';
@@ -259,6 +260,42 @@ describe('the pool', () => {
 
     expect(outside.rows[0]?.random_page_cost).toBe('1.1');
     expect(inside.rows[0]?.random_page_cost).toBe('1.1');
+  });
+
+  it('sets it as each connection opens, sending no query of its own', async () => {
+    const query = vi.spyOn(Client.prototype, 'query');
+    const fresh = open({ max: 1 });
+
+    try {
+      const { rows } = await fresh.pool.query<{ random_page_cost: string }>(
+        'SHOW random_page_cost',
+      );
+
+      expect(rows[0]?.random_page_cost).toBe('1.1');
+      // A query of its own on a new connection would queue the caller's behind it, which pg
+      // deprecates and pg 9 removes.
+      expect(query.mock.calls.map(([text]) => text)).toEqual(['SHOW random_page_cost']);
+    } finally {
+      query.mockRestore();
+      await fresh.close();
+    }
+  });
+
+  it('keeps the options DATABASE_URL carries, and overrides a conflicting one', async () => {
+    const url = new URL(TEST_DATABASE_URL);
+    url.searchParams.set('options', '-c work_mem=8MB -c random_page_cost=4');
+    const custom = createDatabase({ connectionString: url.href, logger });
+
+    try {
+      const { rows } = await custom.pool.query<{ work_mem: string; random_page_cost: string }>(
+        `SELECT current_setting('work_mem') AS work_mem,
+                current_setting('random_page_cost') AS random_page_cost`,
+      );
+
+      expect(rows[0]).toEqual({ work_mem: '8MB', random_page_cost: '1.1' });
+    } finally {
+      await custom.close();
+    }
   });
 
   it('caps statements outside a transaction with the statement timeout', async () => {
