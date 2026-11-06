@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { Credentials } from '../../../api/src/auth/rules.js';
 import { ApiError, SERVER_ERROR_CODES } from './errors.js';
 
 // Longer than the slowest checkout the API can give: a charge and then a refund, each up to four
@@ -26,6 +27,10 @@ const errorBody = z.object({
 const healthBody = z.object({ status: z.literal('ok') });
 export type Health = z.infer<typeof healthBody>;
 
+const tokenBody = z.object({ token: z.string().min(1) });
+const newFanBody = z.object({ id: z.number().int().positive(), email: z.string() });
+export type NewFan = z.infer<typeof newFanBody>;
+
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
 export interface ApiClientOptions {
@@ -34,6 +39,9 @@ export interface ApiClientOptions {
   // Tests pass their own; the page uses the browser's.
   fetch?: Fetch;
   timeoutMs?: number;
+  // Called when the API refuses a request's token with a 401, so the page can end the session
+  // whichever call found out. Not called for a request sent without one, such as a login.
+  onUnauthorized?: () => void;
 }
 
 export interface RequestOptions {
@@ -53,6 +61,9 @@ export interface ApiClient {
   // Resolves with the body parsed by `schema`, or rejects with an ApiError.
   request<T>(path: `/${string}`, schema: z.ZodType<T>, options?: RequestOptions): Promise<T>;
   health(signal?: AbortSignal): Promise<Health>;
+  // Resolves with the fan's login token.
+  logIn(credentials: Credentials): Promise<string>;
+  signUp(credentials: Credentials): Promise<NewFan>;
 }
 
 // Called as a plain function: a browser refuses fetch called as a method of another object.
@@ -62,6 +73,7 @@ export function createApiClient({
   baseUrl,
   fetch = browserFetch,
   timeoutMs: defaultTimeoutMs = REQUEST_TIMEOUT_MS,
+  onUnauthorized,
 }: ApiClientOptions): ApiClient {
   async function request<T>(
     path: `/${string}`,
@@ -93,6 +105,7 @@ export function createApiClient({
     }
 
     const requestId = response.headers.get(REQUEST_ID_HEADER) ?? undefined;
+    if (token !== undefined && response.status === 401) onUnauthorized?.();
     const badResponse = (cause: unknown) =>
       new ApiError({
         status: response.status,
@@ -125,5 +138,9 @@ export function createApiClient({
   return {
     request,
     health: (signal) => request('/health', healthBody, { signal, timeoutMs: HEALTH_TIMEOUT_MS }),
+    logIn: async (credentials) =>
+      (await request('/auth/login', tokenBody, { method: 'POST', body: credentials })).token,
+    signUp: (credentials) =>
+      request('/auth/signup', newFanBody, { method: 'POST', body: credentials }),
   };
 }
