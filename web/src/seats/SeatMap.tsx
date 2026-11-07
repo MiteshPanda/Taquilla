@@ -1,24 +1,24 @@
 import { useId } from 'react';
-import type { ApiClient } from '../api/client.js';
-import { EVENT_ID, LEGEND, SEAT_VIEWS } from './seats.js';
+import type { Seat } from '../api/client.js';
+import { LEGEND, SEAT_VIEWS } from './seats.js';
 import { StandGrid } from './StandGrid.js';
-import { useSeatMap } from './useSeatMap.js';
+import type { SeatMapState } from './useSeatMap.js';
 
 const NO_SEATS: ReadonlySet<number> = new Set();
 
 const kickOff = new Intl.DateTimeFormat('en-IN', { dateStyle: 'full', timeStyle: 'short' });
 
 export interface SeatMapProps {
-  api: ApiClient;
-  eventId?: number;
-  // The seats this fan holds, from their hold response (FR-WEB-1); WP 7.4 passes them.
+  map: SeatMapState;
+  // The seats this fan holds, from their hold response (FR-WEB-1).
   mine?: ReadonlySet<number>;
-  // Picks each wait between polls; tests pass their own.
-  random?: () => number;
+  // Free seats the fan has picked but not yet held.
+  selected?: ReadonlySet<number>;
+  // Absent while seats can't be picked.
+  onToggleSeat?: ((seat: Seat) => void) | undefined;
 }
 
-export function SeatMap({ api, eventId = EVENT_ID, mine = NO_SEATS, random }: SeatMapProps) {
-  const map = useSeatMap(api, eventId, random);
+export function SeatMap({ map, mine = NO_SEATS, selected = NO_SEATS, onToggleSeat }: SeatMapProps) {
   const headingId = useId();
 
   if (map.status === 'loading') {
@@ -51,7 +51,14 @@ export function SeatMap({ api, eventId = EVENT_ID, mine = NO_SEATS, random }: Se
         </p>
       )}
       {map.stands.map((stand) => (
-        <StandGrid key={stand.name} stand={stand} states={map.states} mine={mine} />
+        <StandGrid
+          key={stand.name}
+          stand={stand}
+          states={map.states}
+          mine={mine}
+          selected={selected}
+          onToggleSeat={onToggleSeat}
+        />
       ))}
     </section>
   );

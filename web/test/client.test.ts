@@ -435,3 +435,58 @@ describe('the seat reads', () => {
     expect(timeout.mock.calls).toEqual([[10_000], [10_000]]);
   });
 });
+
+describe('holds', () => {
+  const HOLD = {
+    holdId: '6f1c1e0e-6b1a-4a51-9a3e-2f0c1a7d9e11',
+    seatIds: [41, 42],
+    amountPaise: 900_000,
+    expiresAt: '2026-11-07T12:05:00.000Z',
+  };
+
+  it('holds seats with a POST carrying the seats, the token and the key', async () => {
+    const { calls, fetch } = fakeFetch(() => json(201, HOLD));
+
+    await expect(
+      createApiClient({ baseUrl: BASE_URL, fetch }).holdSeats(1, [42, 41], 'a.b.c', 'key-1'),
+    ).resolves.toEqual(HOLD);
+
+    expect(calls[0]?.url).toBe('http://api.test/v1/events/1/holds');
+    expect(calls[0]?.init.method).toBe('POST');
+    expect(bodyOf(calls[0])).toEqual({ seatIds: [42, 41] });
+    expect(headersOf(calls[0]).get('authorization')).toBe('Bearer a.b.c');
+    expect(headersOf(calls[0]).get('idempotency-key')).toBe('key-1');
+  });
+
+  it.each([
+    ['a hold id that is not a UUID', { ...HOLD, holdId: 'h-1' }],
+    ['an expiry that is not a time', { ...HOLD, expiresAt: 'soon' }],
+    ['no seats', { ...HOLD, seatIds: [] }],
+  ])('refuses a hold answer with %s', async (_case, body) => {
+    const { fetch } = fakeFetch(() => json(201, body));
+
+    await expect(
+      createApiClient({ baseUrl: BASE_URL, fetch }).holdSeats(1, [41], 'a.b.c', 'key-1'),
+    ).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
+  });
+
+  it('releases a hold with a DELETE carrying the token, and resolves on 204', async () => {
+    const { calls, fetch } = fakeFetch(() => new Response(null, { status: 204 }));
+
+    await expect(
+      createApiClient({ baseUrl: BASE_URL, fetch }).releaseHold(HOLD.holdId, 'a.b.c'),
+    ).resolves.toBeUndefined();
+
+    expect(calls[0]?.url).toBe(`http://api.test/v1/holds/${HOLD.holdId}`);
+    expect(calls[0]?.init.method).toBe('DELETE');
+    expect(headersOf(calls[0]).get('authorization')).toBe('Bearer a.b.c');
+  });
+
+  it('keeps a strange hold id inside its own path segment', async () => {
+    const { calls, fetch } = fakeFetch(() => new Response(null, { status: 204 }));
+
+    await createApiClient({ baseUrl: BASE_URL, fetch }).releaseHold('../orders/x', 'a.b.c');
+
+    expect(calls[0]?.url).toBe('http://api.test/v1/holds/..%2Forders%2Fx');
+  });
+});

@@ -60,6 +60,15 @@ const seatStatesBody = z.object({
 });
 export type SeatStates = z.infer<typeof seatStatesBody>;
 
+// POST /events/:id/holds (FR-HOLD-7).
+const holdBody = z.object({
+  holdId: z.uuid(),
+  seatIds: z.array(z.number().int()).min(1),
+  amountPaise: z.number().int().positive(),
+  expiresAt: z.iso.datetime({ offset: true }),
+});
+export type Hold = z.infer<typeof holdBody>;
+
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
 export interface ApiClientOptions {
@@ -95,6 +104,14 @@ export interface ApiClient {
   signUp(credentials: Credentials): Promise<NewFan>;
   seatMap(eventId: number, signal?: AbortSignal): Promise<SeatMapData>;
   seatStates(eventId: number, signal?: AbortSignal): Promise<SeatStates>;
+  // The key makes a retried hold return the first one's answer instead of holding twice.
+  holdSeats(
+    eventId: number,
+    seatIds: readonly number[],
+    token: string,
+    idempotencyKey: string,
+  ): Promise<Hold>;
+  releaseHold(holdId: string, token: string): Promise<void>;
 }
 
 // Called as a plain function: a browser refuses fetch called as a method of another object.
@@ -175,6 +192,15 @@ export function createApiClient({
       request('/auth/signup', newFanBody, { method: 'POST', body: credentials }),
     seatMap: (eventId, signal) =>
       request(`/events/${eventId}/seats`, seatMapBody, { signal, timeoutMs: SEAT_READ_TIMEOUT_MS }),
+    holdSeats: (eventId, seatIds, token, idempotencyKey) =>
+      request(`/events/${eventId}/holds`, holdBody, {
+        method: 'POST',
+        body: { seatIds },
+        token,
+        idempotencyKey,
+      }),
+    releaseHold: (holdId, token) =>
+      request(`/holds/${encodeURIComponent(holdId)}`, z.undefined(), { method: 'DELETE', token }),
     seatStates: (eventId, signal) =>
       request(`/events/${eventId}/seats/states`, seatStatesBody, {
         signal,

@@ -2,9 +2,9 @@
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiClient } from '../src/api/client.js';
-import type { SeatMapData, SeatStates } from '../src/api/client.js';
+import type { ApiClient, SeatMapData, SeatStates } from '../src/api/client.js';
 import { SeatMap } from '../src/seats/SeatMap.js';
-import { POLL_MAX_MS, POLL_MIN_MS } from '../src/seats/useSeatMap.js';
+import { POLL_MAX_MS, POLL_MIN_MS, useSeatMap } from '../src/seats/useSeatMap.js';
 import type { Call } from './helpers.js';
 import { fakeFetch, json, stadium } from './helpers.js';
 
@@ -24,6 +24,20 @@ function smallStadium(): SeatMapData {
   });
 }
 
+// The map as the booking flow uses it: polled by useSeatMap, with seats that can be picked.
+function Harness({
+  api,
+  mine,
+  random,
+}: {
+  api: ApiClient;
+  mine: ReadonlySet<number> | undefined;
+  random: () => number;
+}) {
+  const { map } = useSeatMap(api, 1, random);
+  return <SeatMap map={map} mine={mine} onToggleSeat={() => undefined} />;
+}
+
 function setup({
   map = () => json(200, smallStadium()),
   states = () => json(200, NOTHING_TAKEN),
@@ -39,7 +53,7 @@ function setup({
     new URL(call.url).pathname.endsWith('/states') ? states(call) : map(call),
   );
   const api = createApiClient({ baseUrl: 'http://api.test', fetch });
-  const view = render(<SeatMap api={api} mine={mine} random={random} />);
+  const view = render(<Harness api={api} mine={mine} random={random} />);
   const count = (path: string) =>
     calls.filter((call) => new URL(call.url).pathname === path).length;
   return {
@@ -93,7 +107,7 @@ describe('the map', () => {
     ).toBeTruthy();
   });
 
-  it('tells the four states apart in words and in style, not by colour alone', async () => {
+  it('tells the states apart in words and in style, not by colour alone', async () => {
     const map = smallStadium();
     map.seats = map.seats.map((s) =>
       s.id === 2 || s.id === 3 ? { ...s, state: 'held' } : s.id === 4 ? { ...s, state: 'sold' } : s,
@@ -105,7 +119,8 @@ describe('the map', () => {
     const cases = [
       ['Fondo Norte, row A, seat 1, available', 'seat-available', null],
       ['Fondo Norte, row A, seat 2, held by another fan', 'seat-held', 'true'],
-      ['Fondo Norte, row A, seat 3, held by you', 'seat-yours', null],
+      // A seat the fan already holds can't be picked again.
+      ['Fondo Norte, row A, seat 3, held by you', 'seat-yours', 'true'],
       ['Fondo Norte, row B, seat 1, sold', 'seat-sold', 'true'],
     ] as const;
     for (const [name, className, disabled] of cases) {
@@ -121,7 +136,7 @@ describe('the map', () => {
       within(key)
         .getAllByRole('listitem')
         .map((item) => item.textContent),
-    ).toEqual(['Available', 'Held by another fan', 'Held by you', 'Sold']);
+    ).toEqual(['Available', 'Selected', 'Held by another fan', 'Held by you', 'Sold']);
   });
 
   it("draws the seed's whole stadium: four stands of 500 seats", async () => {
