@@ -4,6 +4,7 @@ import {
   parseConfig,
   parseMigrateConfig,
   parseResetConfig,
+  parseSeedConfig,
   parseSweeperConfig,
   parseTokensConfig,
 } from '../src/config.js';
@@ -104,6 +105,15 @@ describe('parseSweeperConfig', () => {
     });
   });
 
+  it('reads SWEEPER_HEARTBEAT_FILE, and treats a blank one as unset', () => {
+    expect(parseSweeperConfig({ SWEEPER_HEARTBEAT_FILE: '/tmp/beat' }).SWEEPER_HEARTBEAT_FILE).toBe(
+      '/tmp/beat',
+    );
+    expect(parseSweeperConfig({ SWEEPER_HEARTBEAT_FILE: '' })).not.toHaveProperty(
+      'SWEEPER_HEARTBEAT_FILE',
+    );
+  });
+
   it('reads SWEEP_INTERVAL_SECONDS and rejects one that is not a positive whole number', () => {
     expect(parseSweeperConfig({ SWEEP_INTERVAL_SECONDS: '3' }).SWEEP_INTERVAL_SECONDS).toBe(3);
     expect(() => parseSweeperConfig({ SWEEP_INTERVAL_SECONDS: '0' })).toThrow(
@@ -149,6 +159,20 @@ describe('parseResetConfig', () => {
 
   it('rejects a SEED_PASSWORD that is too short', () => {
     expect(() => parseResetConfig({ SEED_PASSWORD: 'short' })).toThrow(/SEED_PASSWORD/);
+  });
+});
+
+describe('parseSeedConfig', () => {
+  it('needs no JWT_SECRET or NODE_ENV, since it never deletes anything', () => {
+    expect(parseSeedConfig({ NODE_ENV: 'production', JWT_SECRET: 'short' })).toEqual({
+      LOG_LEVEL: 'info',
+      DATABASE_URL: 'postgres://taquilla:taquilla@localhost:5432/taquilla',
+      SEED_PASSWORD: 'taquilla-dev',
+    });
+  });
+
+  it('rejects a SEED_PASSWORD that is too short', () => {
+    expect(() => parseSeedConfig({ SEED_PASSWORD: 'short' })).toThrow(/SEED_PASSWORD/);
   });
 });
 

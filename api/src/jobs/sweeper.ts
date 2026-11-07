@@ -37,11 +37,22 @@ const DELETE_OLD_KEYS = `
    USING old
    WHERE keys.user_id = old.user_id AND keys.idem_key = old.idem_key`;
 
+// The sweeper container counts as healthy while its last successful run ended within this many
+// intervals (WP 8.1), and never less than HEARTBEAT_MIN_MS, so a short interval has some slack.
+export const HEARTBEAT_INTERVALS = 3;
+export const HEARTBEAT_MIN_MS = 30_000;
+
+export function heartbeatIsFresh(lastRunMs: number, nowMs: number, intervalMs: number): boolean {
+  return nowMs - lastRunMs <= Math.max(HEARTBEAT_INTERVALS * intervalMs, HEARTBEAT_MIN_MS);
+}
+
 export interface SweeperOptions {
   db: Pick<Database, 'withTransaction'>;
   logger: Logger;
   intervalMs: number;
   batchSize?: number;
+  // Called after each run that succeeded, such as to touch the health check's heartbeat file.
+  onRunSucceeded?: () => Promise<void>;
 }
 
 export interface Sweeper {
@@ -60,6 +71,7 @@ export function createSweeper({
   logger,
   intervalMs,
   batchSize = 1_000,
+  onRunSucceeded,
 }: SweeperOptions): Sweeper {
   let timer: NodeJS.Timeout | undefined;
   let running: Promise<void> | undefined;
@@ -100,6 +112,12 @@ export function createSweeper({
     } catch (err) {
       // A database outage mustn't stop the sweeper; the next run tries again.
       logger.error({ err }, 'sweep failed; trying again at the next interval');
+      return;
+    }
+    try {
+      await onRunSucceeded?.();
+    } catch (err) {
+      logger.error({ err }, 'could not record the sweep for the health check');
     }
   }
 

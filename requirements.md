@@ -272,8 +272,8 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | Tool | Version | Purpose |
 | --- | --- | --- |
 | Git | Any recent | Version control |
-| Docker with Compose v2 | Any recent | Runs Postgres and every service |
-| Node.js and npm | Current LTS | API, payment mock, scripts, tests and the web build |
+| Docker with Compose v2 | Any recent | Builds the images and runs Postgres and every service |
+| Node.js and npm | Current LTS | Scripts, tests and load-test tokens, and running a service on the host while developing it |
 | k6 | Latest stable | Load tests |
 | Machine | 4+ CPU cores and 8 GB+ RAM recommended | 1,000 virtual users beside the stack; use 500 on smaller machines |
 
@@ -282,10 +282,17 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | Service | Port | What runs |
 | --- | --- | --- |
 | `postgres` | 5432 | PostgreSQL 16 |
+| `migrate` | None | The API's migrations, then exits |
+| `payments-migrate` | None | The payment mock's migrations, then exits |
+| `seed` | None | Seeds the stadium into an empty database, then exits |
 | `api` | 3000 | Express API |
 | `payments-mock` | 4000 | Fake payment provider |
 | `sweeper` | None | Expiry sweeper, no HTTP |
-| `web` | 5173 | React + Vite seat map |
+| `web` | 8080 | The seat map's static build, served by nginx |
+
+Every port is published on `127.0.0.1` only. On the host, `npm run web` serves the page's development build on 5173.
+
+The images are built from `api/Dockerfile`, `payments-mock/Dockerfile` and `web/Dockerfile` in several stages, so the final image holds the compiled code and the production dependencies only. The API's image also runs `migrate`, `seed` and `sweeper`, each with its own command. Every image runs as an unprivileged user and has a health check.
 
 ### 8.3 Dependencies
 
@@ -296,6 +303,8 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | `payments-mock` | express, pg, pino, pino-http, zod | tsx, @types/express, @types/pg |
 | `web` | react, react-dom, zod, @fontsource-variable/archivo (the page's typeface, served with it rather than from a font CDN) | vite, @vitejs/plugin-react, @types/react, @types/react-dom, jsdom, @testing-library/react, @testing-library/dom |
 | `loadtest` | k6, a standalone binary rather than an npm package | None |
+
+The images build on `node:26.13.0-alpine3.24`, the Node.js version in `.nvmrc`, and serve the page with `nginxinc/nginx-unprivileged:1.30.6-alpine`.
 
 Install the current stable versions and commit `package-lock.json`, so every install is reproducible. TypeScript stays on 6.0 until typescript-eslint supports a newer major version.
 
@@ -312,6 +321,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | `BOOKING_STRATEGY` | `lock` | `lock`, `cas` or `serializable` |
 | `HOLD_SECONDS` | `300` | Hold length (tests use `2`) |
 | `SWEEP_INTERVAL_SECONDS` | `10` | How often the sweeper runs |
+| `SWEEPER_HEARTBEAT_FILE` | None | Sweeper: a file it touches after every successful run, which its container's health check reads; unset, it keeps none |
 | `PAYMENTS_URL` | `http://localhost:4000` | Mock provider address |
 | `DECLINE_RATE` | `0.05` | Mock: share of charges declined |
 | `LOST_RESPONSE_RATE` | `0.02` | Mock: share of first attempts whose response is lost |
@@ -326,6 +336,8 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | `VITE_API_URL` | `http://localhost:3000` | Web: the API's address, baked into the build; an `http` or `https` URL with no query or fragment |
 | `VITE_DEMO_PASSWORD` | `taquilla-dev` | Web: the seeded fans' password (`SEED_PASSWORD`) for the demo login; at least 8 characters, and readable by anyone with the page |
 
+`docker-compose.yml` passes each service only the variables it uses, from `.env` or its own defaults. It sets `DATABASE_URL`, `PAYMENTS_URL` and `CORS_ORIGINS` for the containers' network, so `.env`'s values for those apply on the host only. The images set `NODE_ENV=production`. In the web image, `VITE_API_URL` and `VITE_DEMO_PASSWORD` are build arguments.
+
 ## 9. Verification and acceptance
 
 | Requirement | Verified by | Passes when |
@@ -338,6 +350,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-WEB-6 | `web/test/SeatMap.test.tsx`, `web/test/stadium.test.ts` | The plan draws all 2,000 seats in their stands, with seat 1 on a fan's left and each row above and behind the one in front; every point of a stand finds its seat and the pitch finds none; picked and held seats are raised; the view shows the seat focused, hovered or pointed at on the plan, else the newest pick, else the first seat held, named and placed in words; a mouse click on a free seat on the plan picks it and a tap only shows its stand; the view draws the pitch, the other stands with their crowd, holds and picks, and the rows in front, cut at the camera rather than flipped |
 | FR-DEV-4 | `api/test/tokens.test.ts` | 1,000 tokens are written, one per seeded fan, and each one authenticates; production and remote hosts are refused |
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats, 1,000 fans and no charges, and refuses production or a remote host |
+| FR-SEAT-4, NFR-10 (the stack's seed) | `api/test/seed.test.ts` | An empty database gets 2,000 seats and 1,000 fans, also when two seeders start at once; a database with a match or fans is left untouched |
 | FR-HOLD-1 to FR-HOLD-3 | `api/test/holds.test.ts` | Free, taken, sold, lapsed and unknown seats give the specified result under each strategy |
 | FR-HOLD-7, §6.4 | `api/test/holds-route.test.ts` | `POST /events/:id/holds` answers `201`, `400`, `401`, `404` and `409` under each strategy, and each Postgres code maps as §6.4 says |
 | FR-HOLD-8, FR-AUTH-3 | `api/test/release.test.ts` | The owner frees the hold, a stranger gets `404`, and a repeated or simultaneous release changes nothing more |
@@ -345,7 +358,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-HOLD-3, FR-HOLD-4, FR-HOLD-6 | `api/test/concurrency.test.ts` | For each strategy: 100 parallel holds on one seat give 1 winner and 99 `409`s; opposite-order multi-seat holds get no `5xx` (and no `SEAT_BUSY` under `lock`); a racing four-seat hold is all or nothing |
 | FR-DEV-1 | `api/test/race.test.ts`, marked `it.fails` | The naive buy sells seat 42 more than once |
 | FR-DEV-1, FR-DEV-2 | `api/test/naive.test.ts` | The naive buy works, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production` |
-| FR-EXP-3, FR-EXP-5 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, deletes idempotency keys older than 24 hours, and the process stops with exit code 0 on `SIGTERM` |
+| FR-EXP-3, FR-EXP-5 | `api/test/sweeper.test.ts` | One run frees every lapsed seat in batches and nothing else, skips locked seats, never overlaps, deletes idempotency keys older than 24 hours, and the process stops with exit code 0 on `SIGTERM`; the heartbeat is touched after every successful run only, and the health check fails three intervals (at least 30 s) after the last one |
 | FR-EXP-1 to FR-EXP-4, INV-4 | `api/test/expiry.test.ts`, one test with `HOLD_SECONDS=2` | A lapsed seat can be held by another fan before any sweep, a sweep never undoes a newer hold, and four sweepers at once free each seat exactly once |
 | FR-MOCK-1 to FR-MOCK-5, DR-9 | `payments-mock/test/*.test.ts` | A repeated key returns the original charge, also when 20 first attempts race; one order can be charged under two keys; a refund is safe to repeat; and every fault hits first attempts only |
 | FR-AUD-1, FR-AUD-2 | `api/test/audit.test.ts` | A healthy stadium passes; a planted violation of each rule fails exactly that rule (INV-2 also breaks INV-3); the command exits 0, 1 and 2 as specified |
@@ -365,6 +378,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-WEB-4, FR-SEAT-5 | k6 `seat-poll` | 1,000 fans each load the map once and poll the states every 2 to 3 seconds: p95 under 500 ms and failures under 0.1% |
 | §6.2, §6.3 (the web's API client) | `web/test/client.test.ts`, `api/test/web-client.test.ts` | Every error answer becomes a typed error with its code, status and seats, also through the real API app; anything else becomes a network, timeout or bad-response error; and the typecheck fails if the web's codes and the server's differ |
 | FR-AUTH-1, FR-AUTH-2 (the web page) | `web/test/App.test.tsx`, `web/test/session.test.ts`, `web/test/services.test.ts`, `api/test/auth-rules.test.ts`, `api/test/web-client.test.ts` | The forms refuse what the API refuses, in its words, using the same rules file; sign-up, login and the demo login work against the real routes; the token is kept in `sessionStorage` only; and an expired or refused token sends the fan back to login (ADR 5) |
+| NFR-10 | `docker compose up --build` on a fresh clone, with only `JWT_SECRET` set in `.env` | The jobs exit with code 0, every other service turns healthy, and the seat map at http://localhost:8080 shows the seeded stadium; a fan can log in as the demo fan, hold seats and pay |
 | NFR-12 | GitHub Actions | The workflow is green on every push |
 
 ### 9.1 Checkout acceptance cases
@@ -447,3 +461,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.32 | 7 Nov 2026 | The verification row for the hold flow, FR-WEB-2 and FR-WEB-5 |
 | 0.33 | 7 Nov 2026 | The verification row for the payment step, FR-WEB-3 |
 | 0.34 | 7 Nov 2026 | FR-WEB-6, the plan of the ground and the view from a seat; FR-WEB-1's verification row shows one stand at a time; the web page's typeface in §8.3 |
+| 0.35 | 7 Nov 2026 | Production containers (WP 8.1): the services and images in §8.2, the base images in §8.3, `SWEEPER_HEARTBEAT_FILE` and how Compose passes variables in §8.4, and verification rows for NFR-10 and the stack's seed |

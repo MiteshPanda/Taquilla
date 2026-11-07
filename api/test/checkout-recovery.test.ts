@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Faults } from '../../payments-mock/src/faults.js';
 import { createTestSchema, startMock } from '../../payments-mock/test/helpers/mock.js';
 import type { RunningMock } from '../../payments-mock/test/helpers/mock.js';
-import { seedStadium } from '../../scripts/seed.js';
+import { seedStadium } from '../src/seed.js';
 import { createApp } from '../src/app.js';
 import { signToken } from '../src/auth/tokens.js';
 import { createPaymentClient } from '../src/checkout/payment-client.js';

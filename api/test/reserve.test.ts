@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { seedStadium } from '../../scripts/seed.js';
+import { seedStadium } from '../src/seed.js';
 import { paymentKey } from '../src/checkout/payment-client.js';
 import { reserve, RESERVE_MINUTES } from '../src/checkout/reserve.js';
 import { createDatabase } from '../src/db.js';

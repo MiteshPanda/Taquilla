@@ -1,6 +1,6 @@
 import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { seedStadium } from '../../scripts/seed.js';
+import { seedStadium } from '../src/seed.js';
 import { BOOKING_STRATEGIES } from '../src/config.js';
 import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';

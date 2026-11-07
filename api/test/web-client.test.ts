@@ -34,7 +34,7 @@ import type { RunningMock } from '../../payments-mock/test/helpers/mock.js';
 import { createCheckoutRouter } from '../src/checkout/routes.js';
 import { createPaymentClient } from '../src/checkout/payment-client.js';
 import type { PaymentClient } from '../src/checkout/payment-client.js';
-import { seedStadium } from '../../scripts/seed.js';
+import { seedStadium } from '../src/seed.js';
 import { schemaConnectionString } from './helpers/database.js';
 
 // Sign-up and login each run one bcrypt hash at cost 12, which can take a second on a laptop.

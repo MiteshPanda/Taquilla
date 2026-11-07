@@ -21,6 +21,12 @@ const routes = Router();
 routes.get('/ok', (_req, res) => {
   res.json({ ok: true });
 });
+routes.get('/health', (_req, res) => {
+  res.json({ status: 'ok' });
+});
+routes.get('/ready', (_req, res) => {
+  res.json({ status: 'ready' });
+});
 routes.get('/items/:id', (_req, res) => {
   res.json({ ok: true });
 });
@@ -257,6 +263,30 @@ describe('logging', () => {
 
     expect((await logFor('/seat-taken')).level).toBe(LEVEL.debug);
     expect((await logFor('/ok')).level).toBe(LEVEL.info);
+  });
+
+  it("logs Docker's passing health checks at debug, so they don't fill the log", async () => {
+    const app = buildApp();
+    await request(app).get('/health');
+    await request(app).get('/ready');
+
+    expect((await logFor('/health')).level).toBe(LEVEL.debug);
+    expect((await logFor('/ready')).level).toBe(LEVEL.debug);
+  });
+
+  it('still logs a failing readiness check as an error', async () => {
+    const failing = Router();
+    failing.get('/ready', () => {
+      throw new AppError(503, 'DATABASE_UNAVAILABLE', 'The database is unavailable.');
+    });
+    const logger = createLogger('debug', {
+      write: (line: string) => logs.push(JSON.parse(line) as LogLine),
+    });
+    await request(createApp({ config: { CORS_ORIGINS: [] }, logger, routes: failing })).get(
+      '/ready',
+    );
+
+    expect((await logFor('/ready')).level).toBe(LEVEL.error);
   });
 });
 

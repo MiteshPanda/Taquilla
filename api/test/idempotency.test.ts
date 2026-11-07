@@ -2,7 +2,7 @@ import { Router } from 'express';
 import type { Request, Response } from 'express';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { seedStadium } from '../../scripts/seed.js';
+import { seedStadium } from '../src/seed.js';
 import { createApp } from '../src/app.js';
 import { requireAuth } from '../src/auth/middleware.js';
 import { signToken } from '../src/auth/tokens.js';
