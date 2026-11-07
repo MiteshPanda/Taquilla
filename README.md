@@ -237,7 +237,7 @@ To run only the database, use `docker compose up -d postgres`. It creates `taqui
 
 ### Live demo
 
-The demo can run on free tiers: Postgres on Neon, the API on Render and the page on Vercel. [docs/deploy.md](docs/deploy.md) has every step, and `render.yaml` and `vercel.json` hold the settings that aren't secret.
+The demo can run on free tiers: Postgres on Neon, the API on Render and the page on Vercel. [docs/deploy.md](docs/deploy.md) has every step, and `render.yaml` and `web/vercel.json` hold the settings that aren't secret.
 
 - **One process on Render:** a free Render service sleeps when idle, and a sleeping payment provider would time out the API's charges. So there the API runs the payment mock and the sweeper in its own process (`PAYMENTS_IN_PROCESS`, `SWEEPER_IN_PROCESS`).
 - **Every start** migrates and seeds an empty database.
@@ -738,7 +738,8 @@ taquilla/
 │   │   └── App.tsx          # the page: login, or who is logged in
 │   ├── test/
 │   ├── Dockerfile           # builds the page, then serves it with nginx
-│   └── nginx.conf           # caching, gzip and the Content Security Policy
+│   ├── nginx.conf           # caching, gzip and the Content Security Policy
+│   └── vercel.json          # the demo page on Vercel, with the same headers
 ├── loadtest/                # k6 scenarios
 ├── scripts/                 # reset, tokens, audit
 ├── docs/
@@ -751,7 +752,6 @@ taquilla/
 ├── .dockerignore            # what a build may see, and nothing else
 ├── redocly.yaml             # Redocly CLI settings for npm run lint:api
 ├── render.yaml              # the demo API on Render, as a Blueprint
-├── vercel.json              # the demo page on Vercel, with its security headers
 ├── .env.example
 └── requirements.md
 ```
