@@ -235,6 +235,16 @@ To run only the database, use `docker compose up -d postgres`. It creates `taqui
 - **Developing the page:** `npm run web` serves it from source on http://localhost:5173, against the API in Docker, which allows both origins.
 - **Quiet logs:** Docker's health checks run every 10 seconds, so the API and the mock log a passing one at `debug`. A failing one is still an error.
 
+### Live demo
+
+The demo can run on free tiers: Postgres on Neon, the API on Render and the page on Vercel. [docs/deploy.md](docs/deploy.md) has every step, and `render.yaml` and `vercel.json` hold the settings that aren't secret.
+
+- **One process on Render:** a free Render service sleeps when idle, and a sleeping payment provider would time out the API's charges. So there the API runs the payment mock and the sweeper in its own process (`PAYMENTS_IN_PROCESS`, `SWEEPER_IN_PROCESS`).
+- **Every start** migrates and seeds an empty database.
+- **The fan's address:** `TRUST_PROXY=1` makes the rate limit see the fan's address rather than Render's proxy.
+
+**Never load-test the hosted demo.**
+
 ### Reproduce the headline result
 
 ```bash
@@ -284,6 +294,9 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `LATENCY_MAX_MS` | `800` | Mock: longest delay added to a first attempt |
 | `SEED_PASSWORD` | `taquilla-dev` | Password for seeded test fans (local only) |
 | `RACE_DELAY_MS` | `0` | Dev only: widens the naive race window |
+| `SWEEPER_IN_PROCESS` | `false` | Run the sweeper inside the API's process, for a host with one service ([Live demo](#live-demo)) |
+| `PAYMENTS_IN_PROCESS` | `false` | Run the payment mock inside the API's process, on a private port, instead of calling `PAYMENTS_URL` |
+| `TRUST_PROXY` | `0` | How many proxies stand in front of the API, so the rate limit sees each fan's address; `0` trusts no `X-Forwarded-For` |
 | `NODE_ENV` | `development` | `development`, `test` or `production` |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
@@ -461,6 +474,7 @@ docker compose up -d postgres   # the tests run against the taquilla_test databa
 npm test
 ```
 
+- **The hosted demo's process:** with `PAYMENTS_IN_PROCESS` and `SWEEPER_IN_PROCESS`, a real API process holds and pays for seats through the mock inside it, and frees a lapsed hold with no sweeper of its own. On Linux it also stops cleanly on `SIGTERM`. The embedded mock migrates its schema, charges once per key and listens on `127.0.0.1` only. With `TRUST_PROXY`, `req.ip` is the address the trusted proxy saw, and without it a client can't fake one.
 - **OpenAPI spec:**
   - **Routes:** the API's routes and the spec's operations match one to one, and only the dev route is marked `Dev`. The spec's error codes are exactly the API's.
   - **Answers:** the real API, Postgres and payment mock are taken through every operation. Each answer's status must be one the spec lists for it, and its body must match that answer's schema, with no extra fields. A fixed `Cache-Control` must match too. Every documented success and `4xx` is reached.
@@ -694,7 +708,7 @@ taquilla/
 │   │   ├── auth/            # signup, login, JWT middleware; rules.ts is shared with the web page
 │   │   ├── seats/           # seat map with lazy expiry
 │   │   ├── holds/           # lock, cas and serializable strategies
-│   │   ├── checkout/        # reserve → charge → confirm; payment-client.ts calls the provider
+│   │   ├── checkout/        # reserve → charge → confirm; payment-client.ts calls the provider, embedded-payments.ts loads it in-process
 │   │   ├── orders/          # GET /orders/:id, and the order view checkout answers with
 │   │   ├── idempotency/     # Idempotency-Key middleware
 │   │   ├── jobs/            # sweeper.ts frees expired holds; sweeper-cli.ts runs it, sweeper-health-cli.ts checks it
@@ -707,6 +721,7 @@ taquilla/
 │   │   ├── routes.ts        # POST /charges and POST /charges/:key/refund
 │   │   ├── charges.ts       # the SQL: one charge per key
 │   │   ├── faults.ts        # latency, declines and lost responses
+│   │   ├── embedded.ts      # the mock inside the API's process, for the hosted demo
 │   │   └── server.ts        # npm run payments
 │   ├── test/
 │   └── Dockerfile
@@ -729,11 +744,14 @@ taquilla/
 ├── docs/
 │   ├── adr/                 # architecture decision records
 │   ├── benchmarks.md        # results, CPU profile, tuning and query plans
+│   ├── deploy.md            # the live demo on Neon, Render and Vercel
 │   └── openapi.yaml         # the API contract, OpenAPI 3.1
 ├── .github/                 # CI workflow, Dependabot, pull request template
 ├── docker-compose.yml       # the whole stack, in start-up order
 ├── .dockerignore            # what a build may see, and nothing else
 ├── redocly.yaml             # Redocly CLI settings for npm run lint:api
+├── render.yaml              # the demo API on Render, as a Blueprint
+├── vercel.json              # the demo page on Vercel, with its security headers
 ├── .env.example
 └── requirements.md
 ```

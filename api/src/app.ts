@@ -15,13 +15,17 @@ const HEALTH_CHECKS = new Set(['/health', '/ready']);
 const SAFE_REQUEST_ID = /^[\w-]{1,128}$/;
 
 export interface AppOptions {
-  config: Pick<Config, 'CORS_ORIGINS'>;
+  config: Pick<Config, 'CORS_ORIGINS'> & Partial<Pick<Config, 'TRUST_PROXY'>>;
   logger: Logger;
   routes?: Router;
 }
 
 export function createApp({ config, logger, routes }: AppOptions): Express {
   const app = express();
+  // Behind a host's proxies, each one adds the address it got the request from to
+  // X-Forwarded-For. Trusting exactly that many makes req.ip the fan's, which a client can't fake.
+  const trustedProxies = config.TRUST_PROXY ?? 0;
+  if (trustedProxies > 0) app.set('trust proxy', trustedProxies);
 
   app.use(
     pinoHttp({

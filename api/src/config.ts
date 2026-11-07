@@ -49,6 +49,13 @@ const configSchema = z.object({
     })
     .default('taquilla-dev'),
   RACE_DELAY_MS: z.coerce.number().int().nonnegative().default(0),
+  // WP 8.4: a free host sleeps an idle service, and a sleeping sweeper or payment provider would
+  // fail the demo, so these run them inside the API's own process instead.
+  SWEEPER_IN_PROCESS: z.stringbool().default(false),
+  PAYMENTS_IN_PROCESS: z.stringbool().default(false),
+  // How many proxies stand between the API and the internet, so req.ip, and the rate limit keyed
+  // on it, is the fan's address and not the proxy's. 0 trusts no X-Forwarded-For at all.
+  TRUST_PROXY: z.coerce.number().int().min(0).max(10).default(0),
 });
 
 // A migration job has no use for the API's secrets, so it must not need them to start.

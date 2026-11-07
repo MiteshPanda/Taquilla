@@ -330,6 +330,9 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | `PAYMENTS_PORT` | `4000` | Mock: its port, kept apart from the API's `PORT` because both read one `.env` |
 | `SEED_PASSWORD` | `taquilla-dev` | Password for seeded test fans (local only) |
 | `RACE_DELAY_MS` | `0` | Dev only: widens the naive race window |
+| `SWEEPER_IN_PROCESS` | `false` | Run the sweeper inside the API's process, for a host with one service |
+| `PAYMENTS_IN_PROCESS` | `false` | Run the payment mock inside the API's process, on a private port, instead of calling `PAYMENTS_URL` |
+| `TRUST_PROXY` | `0` | How many proxies stand in front of the API, so `req.ip` and the rate limit see the fan's address |
 | `NODE_ENV` | `development` | `development`, `test` or `production` |
 | `LOG_LEVEL` | `info` | `fatal`, `error`, `warn`, `info`, `debug`, `trace` or `silent` |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated browser origins allowed to call the API |
@@ -379,6 +382,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | §6.2, §6.3 (the web's API client) | `web/test/client.test.ts`, `api/test/web-client.test.ts` | Every error answer becomes a typed error with its code, status and seats, also through the real API app; anything else becomes a network, timeout or bad-response error; and the typecheck fails if the web's codes and the server's differ |
 | FR-AUTH-1, FR-AUTH-2 (the web page) | `web/test/App.test.tsx`, `web/test/session.test.ts`, `web/test/services.test.ts`, `api/test/auth-rules.test.ts`, `api/test/web-client.test.ts` | The forms refuse what the API refuses, in its words, using the same rules file; sign-up, login and the demo login work against the real routes; the token is kept in `sessionStorage` only; and an expired or refused token sends the fan back to login (ADR 5) |
 | §6.1 to §6.3 (the OpenAPI spec, `docs/openapi.yaml`) | `npm run lint:api`, `api/test/openapi.test.ts` | The spec passes Redocly's `recommended-strict` rules; the API's routes and the spec's operations match one to one; its error codes are the API's; and the real API answers every operation with a documented status, headers and a body that matches its schema, reaching every documented success and `4xx` |
+| WP 8.4 (the hosted demo's process) | `api/test/in-process.test.ts`, `payments-mock/test/embedded.test.ts`, `api/test/app.test.ts` | With both flags on, one API process holds and pays for seats through its own mock and frees a lapsed hold, and stops cleanly on `SIGTERM`; the embedded mock listens on `127.0.0.1` only; with `TRUST_PROXY`, `req.ip` is the address the trusted proxy saw, and without it `X-Forwarded-For` is ignored |
 | NFR-10 | `docker compose up --build` on a fresh clone, with only `JWT_SECRET` set in `.env` | The jobs exit with code 0, every other service turns healthy, and the seat map at http://localhost:8080 shows the seeded stadium; a fan can log in as the demo fan, hold seats and pay |
 | NFR-12 | GitHub Actions, `.github/workflows/ci.yml` | The workflow is green on every push: `test` (format, lint, the OpenAPI lint, typecheck, the build, migrate and the test suite), `stack` (the three images built and the stack healthy, then the k6 smoke test passing its thresholds and `npm run audit` exiting with code 0) and `audit` (`npm audit`) |
 
@@ -465,3 +469,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.35 | 7 Nov 2026 | Production containers (WP 8.1): the services and images in §8.2, the base images in §8.3, `SWEEPER_HEARTBEAT_FILE` and how Compose passes variables in §8.4, and verification rows for NFR-10 and the stack's seed |
 | 0.36 | 7 Nov 2026 | CI hardening (WP 8.2): the verification row for NFR-12 names the jobs, including the stack built from its images, the k6 smoke test and the audit |
 | 0.37 | 7 Nov 2026 | The OpenAPI spec (WP 8.3): its verification row, its lint in the NFR-12 row, and its tools in §8.3 |
+| 0.38 | 7 Nov 2026 | The live demo (WP 8.4): `SWEEPER_IN_PROCESS`, `PAYMENTS_IN_PROCESS` and `TRUST_PROXY` in §8.4, and the verification row for the hosted demo's process |
