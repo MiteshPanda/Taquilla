@@ -1,0 +1,957 @@
+openapi: 3.1.0
+info:
+  title: Taquilla API
+  version: 1.0.0
+  summary: Match tickets that can't be sold twice, or charged twice.
+  description: |
+    The booking API behind Taquilla (requirements.md §6). Fans hold seats for a few minutes, then
+    pay for the hold; row locks decide every race for a seat, and an `Idempotency-Key` makes a
+    repeated checkout return the first answer instead of charging again.
+
+    **Errors.** Every error answer has the same shape, `Error`, with one of the codes in
+    `ErrorCode`. `seatIds` appears only when particular seats caused it. Besides the errors each
+    operation lists, any route can answer `500 INTERNAL_ERROR`, any route with a JSON body
+    `400 VALIDATION_FAILED` for a body that isn't JSON or is over 10 KB, and an unknown route
+    `404 NOT_FOUND`.
+
+    **Request IDs.** Every answer carries `X-Request-Id`. A client may send its own, of 1 to 128
+    letters, digits, `_` or `-`; anything else is replaced with a new UUID.
+
+    **Idempotency.** `POST /events/{id}/holds` takes an optional `Idempotency-Key` and
+    `POST /holds/{id}/checkout` requires one. A key belongs to the fan who sent it. The same key and
+    the same request again return the first answer, status and body, marked
+    `Idempotent-Replayed: true`, without doing anything again. The same key with a different
+    request gets `422 IDEMPOTENCY_KEY_REUSED`, and while the first request still runs,
+    `409 REQUEST_IN_PROGRESS`. Answers that mean "try again" (any `5xx`, and `409 SEAT_BUSY`)
+    aren't saved, so a retry with the same key runs again. Keys are kept for 24 hours.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: http://localhost:3000
+    description: Local, from `docker compose up` or `npm run dev`
+tags:
+  - name: Health
+    description: Liveness and readiness, for Docker's health checks and load balancers.
+  - name: Auth
+    description: Accounts and login tokens. Each IP address can make 10 requests a minute here.
+  - name: Seats
+    description: The seat map, and the seat states a page polls.
+  - name: Holds
+    description: Holding seats for a few minutes, and releasing them.
+  - name: Checkout
+    description: Paying for a hold, exactly once.
+  - name: Orders
+    description: A fan's own orders and their tickets.
+  - name: Dev
+    description: >-
+      The deliberately unsafe buy that shows the double-sell bug. Mounted only when `NODE_ENV`
+      isn't `production`; a production server answers `404` because the route doesn't exist.
+
+paths:
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: The process is up
+      security: []
+      responses:
+        '200':
+          description: The process is up. It doesn't check the database.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                additionalProperties: false
+                properties:
+                  status: { const: ok }
+              example: { status: ok }
+
+  /ready:
+    get:
+      tags: [Health]
+      operationId: getReady
+      summary: The database answers too
+      security: []
+      responses:
+        '200':
+          description: The API can reach the database.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                additionalProperties: false
+                properties:
+                  status: { const: ready }
+              example: { status: ready }
+        '503':
+          description: The database didn't answer.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                DATABASE_UNAVAILABLE: { $ref: '#/components/examples/DatabaseUnavailable' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /auth/signup:
+    post:
+      tags: [Auth]
+      operationId: signUp
+      summary: Create an account
+      description: The email is stored lowercase, with surrounding spaces removed.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SignupRequest' }
+            example: { email: fan@example.com, password: a-long-password }
+      responses:
+        '201':
+          description: The account was created. Log in to get a token.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+            RateLimit: { $ref: '#/components/headers/RateLimit' }
+            RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/User' }
+              example: { id: 1001, email: fan@example.com }
+        '400':
+          description: The email or password breaks the rules.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    error:
+                      code: VALIDATION_FAILED
+                      message: Use a password of at least 8 characters and at most 72 bytes.
+        '409':
+          description: An account with this email already exists.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                EMAIL_TAKEN:
+                  value:
+                    error:
+                      code: EMAIL_TAKEN
+                      message: An account with this email already exists. Log in instead.
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      operationId: logIn
+      summary: Get a login token
+      description: >-
+        The token is a JWT, valid for `JWT_EXPIRES_IN` (an hour by default). Send it as
+        `Authorization: Bearer <token>`. A wrong password and an unknown email get the same answer,
+        in the same time.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LoginRequest' }
+            example: { email: fan1@taquilla.test, password: taquilla-dev }
+      responses:
+        '200':
+          description: Logged in.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+            RateLimit: { $ref: '#/components/headers/RateLimit' }
+            RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Token' }
+              example:
+                token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxIn0.c2lnbmF0dXJl
+        '400':
+          description: The body has no valid email or no password.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    error:
+                      code: VALIDATION_FAILED
+                      message: Enter a valid email address.
+        '401':
+          description: The email or password is wrong.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                UNAUTHORIZED:
+                  value:
+                    error:
+                      code: UNAUTHORIZED
+                      message: The email or password is incorrect.
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /events/{id}/seats:
+    get:
+      tags: [Seats]
+      operationId: getSeatMap
+      summary: The seat map, with every seat's live state
+      description: >-
+        Every seat in section, row and seat order. A seat whose hold has lapsed already reads
+        `available`, before the sweeper frees it. Never cached: `Cache-Control: no-store`.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: The event and its seats.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatMap' }
+              example:
+                event:
+                  {
+                    id: 1,
+                    name: Chamartín FC vs Castellana United,
+                    startsAt: '2026-12-07T19:00:00.000Z',
+                  }
+                seats:
+                  - {
+                      id: 1,
+                      section: Lateral Este,
+                      row: A,
+                      number: 1,
+                      pricePaise: 450000,
+                      state: available,
+                    }
+                  - {
+                      id: 2,
+                      section: Lateral Este,
+                      row: A,
+                      number: 2,
+                      pricePaise: 450000,
+                      state: sold,
+                    }
+        '404': { $ref: '#/components/responses/EventNotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /events/{id}/seats/states:
+    get:
+      tags: [Seats]
+      operationId: getSeatStates
+      summary: Only the ids of held and sold seats, for polling
+      description: >-
+        The seats the full map would show as held or sold, by the same rules, each list in id order.
+        Every other seat is available. A page loads the full map once, then polls this, since
+        names and prices never change. Under 10 KB even with every seat sold. Never cached.
+      security: []
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+      responses:
+        '200':
+          description: The held and sold seats.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+            Cache-Control: { $ref: '#/components/headers/NoStore' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatStates' }
+              example: { held: [42, 43], sold: [7] }
+        '404': { $ref: '#/components/responses/EventNotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /events/{id}/holds:
+    post:
+      tags: [Holds]
+      operationId: holdSeats
+      summary: Hold 1 to 6 seats, all or nothing
+      description: >-
+        Holds every seat asked for, or none. The seats are the fan's until `expiresAt`
+        (`HOLD_SECONDS`, 5 minutes by default), by the database's clock. An `Idempotency-Key` is
+        optional; with one, a retry gets the first answer back.
+      parameters:
+        - $ref: '#/components/parameters/EventId'
+        - $ref: '#/components/parameters/IdempotencyKeyOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/HoldRequest' }
+            example: { seatIds: [41, 42] }
+      responses:
+        '201':
+          description: The seats are held.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+            Idempotent-Replayed: { $ref: '#/components/headers/Idempotent-Replayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Hold' }
+              example:
+                holdId: 8a6e0f9b-3c1d-4b8e-9f2a-6d4c2b1e7a90
+                seatIds: [41, 42]
+                amountPaise: 900000
+                expiresAt: '2026-11-07T15:05:00.000Z'
+        '400':
+          description: >-
+            The body isn't 1 to 6 distinct seat ids, a seat isn't part of this event (named in
+            `seatIds`), or the `Idempotency-Key` is malformed.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    error:
+                      code: VALIDATION_FAILED
+                      message: 'Send a JSON body with seatIds: a list of 1 to 6 seat ids.'
+                SEAT_NOT_IN_EVENT:
+                  summary: A seat that isn't part of this event
+                  value:
+                    error:
+                      code: VALIDATION_FAILED
+                      message: Seat 9999 is not part of this event.
+                      seatIds: [9999]
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/EventNotFound' }
+        '409':
+          description: >-
+            A seat is held or sold (`SEAT_TAKEN`, naming those seats), the seats were too busy to
+            lock in time (`SEAT_BUSY`, safe to retry), or the same key is still being processed.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                SEAT_TAKEN:
+                  value:
+                    error:
+                      code: SEAT_TAKEN
+                      message: Seat 42 was just taken. Pick another seat.
+                      seatIds: [42]
+                SEAT_BUSY: { $ref: '#/components/examples/SeatBusy' }
+                REQUEST_IN_PROGRESS: { $ref: '#/components/examples/RequestInProgress' }
+        '422': { $ref: '#/components/responses/IdempotencyKeyReused' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /holds/{id}:
+    delete:
+      tags: [Holds]
+      operationId: releaseHold
+      summary: Release a hold early
+      description: >-
+        Frees the seats the hold still has and marks it released. A seat another fan took after
+        the hold lapsed stays theirs, and a paid hold stays as it is. Repeating it is harmless.
+        Another fan's hold gets the same `404` as one that doesn't exist.
+      parameters:
+        - $ref: '#/components/parameters/HoldId'
+      responses:
+        '204':
+          description: The hold is released.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/HoldNotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /holds/{id}/checkout:
+    post:
+      tags: [Checkout]
+      operationId: checkOut
+      summary: Pay for a hold
+      description: >-
+        Reserves the hold's seats, charges the payment provider, then issues one ticket per seat.
+        Make one `Idempotency-Key` per payment attempt and keep it for every retry: after a `503`,
+        a lost answer or `409 REQUEST_IN_PROGRESS`. Only a decline (`402`) ends the attempt, so
+        the next one takes a new key. However many times it's sent, a hold is charged at most once.
+        Checking out a hold that is already paid returns its order, with any key, without
+        charging again. Sends no body.
+      parameters:
+        - $ref: '#/components/parameters/HoldId'
+        - $ref: '#/components/parameters/IdempotencyKeyRequired'
+      responses:
+        '200':
+          description: Paid. The body is the order, exactly as `GET /orders/{id}` shows it.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+            Idempotent-Replayed: { $ref: '#/components/headers/Idempotent-Replayed' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+              examples:
+                paid: { $ref: '#/components/examples/PaidOrder' }
+        '400':
+          description: The `Idempotency-Key` header is missing or malformed.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    error:
+                      code: VALIDATION_FAILED
+                      message: Send an Idempotency-Key header with this request.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402':
+          description: The provider declined the charge. Nothing was charged; retry with a new key.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                PAYMENT_DECLINED:
+                  value:
+                    error:
+                      code: PAYMENT_DECLINED
+                      message: Your payment was declined. Try again with a new Idempotency-Key, or use another card.
+        '404': { $ref: '#/components/responses/HoldNotFound' }
+        '409':
+          description: >-
+            The hold's seats were taken before payment (`HOLD_EXPIRED`, nothing charged), or lost
+            after it (`SEAT_LOST_REFUNDED`, the charge refunded); the order is being paid under
+            another key (`PAYMENT_IN_PROGRESS`); or the same key is still being processed
+            (`REQUEST_IN_PROGRESS`: retry with the same key).
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                HOLD_EXPIRED:
+                  value:
+                    error:
+                      code: HOLD_EXPIRED
+                      message: 'Your hold has expired: seat 42 is no longer yours. Pick your seats again.'
+                      seatIds: [42]
+                SEAT_LOST_REFUNDED:
+                  value:
+                    error:
+                      code: SEAT_LOST_REFUNDED
+                      message: Seat 42 was taken while you were paying, so the charge was refunded. Pick your seats again.
+                      seatIds: [42]
+                PAYMENT_IN_PROGRESS:
+                  value:
+                    error:
+                      code: PAYMENT_IN_PROGRESS
+                      message: This order is already being paid in another tab or window. Wait for it to finish.
+                REQUEST_IN_PROGRESS: { $ref: '#/components/examples/RequestInProgress' }
+        '422': { $ref: '#/components/responses/IdempotencyKeyReused' }
+        '500': { $ref: '#/components/responses/InternalError' }
+        '503':
+          description: >-
+            The payment provider didn't answer after retries. The seats stay reserved; retry with
+            the same key, which can't charge twice.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                PAYMENT_UNAVAILABLE:
+                  value:
+                    error:
+                      code: PAYMENT_UNAVAILABLE
+                      message: The payment provider isn't answering. Try again in a moment with the same Idempotency-Key; you won't be charged twice.
+
+  /orders/{id}:
+    get:
+      tags: [Orders]
+      operationId: getOrder
+      summary: The fan's own order, with its tickets
+      description: >-
+        Another fan's order, an unknown one and a malformed id all get the same `404`. Never
+        cached: `Cache-Control: private, no-store`.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: The order's id.
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: The order. Only a paid order has tickets.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+            Cache-Control:
+              description: The order is private and changes as it's paid.
+              schema: { const: 'private, no-store' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+              examples:
+                paid: { $ref: '#/components/examples/PaidOrder' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: No such order for this fan.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                NOT_FOUND:
+                  value:
+                    error:
+                      code: NOT_FOUND
+                      message: This order does not exist.
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /dev/buy-naive:
+    post:
+      tags: [Dev]
+      operationId: buyNaive
+      summary: 'Dev only: the deliberately unsafe buy'
+      description: >-
+        Checks that the seat is free, then writes a ticket, with no lock in between, so parallel
+        buyers can all win the same seat (FR-DEV-1). `RACE_DELAY_MS` widens the gap. Only outside
+        production; a production server answers `404`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seatId]
+              properties:
+                seatId: { $ref: '#/components/schemas/SeatId' }
+            example: { seatId: 42 }
+      responses:
+        '201':
+          description: A naive ticket was written.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ticketId, seatId]
+                additionalProperties: false
+                properties:
+                  ticketId: { type: integer, minimum: 1 }
+                  seatId: { $ref: '#/components/schemas/SeatId' }
+              example: { ticketId: 1, seatId: 42 }
+        '400':
+          description: The body has no valid seat id.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                VALIDATION_FAILED:
+                  value:
+                    error:
+                      code: VALIDATION_FAILED
+                      message: Send a JSON body with a seatId, the id of one seat.
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404':
+          description: The seat doesn't exist, or the server runs in production.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                NOT_FOUND:
+                  value:
+                    error:
+                      code: NOT_FOUND
+                      message: This seat does not exist.
+        '409':
+          description: The check found the seat already sold.
+          headers:
+            X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              examples:
+                SEAT_TAKEN:
+                  value:
+                    error:
+                      code: SEAT_TAKEN
+                      message: Seat 42 was just taken. Pick another seat.
+                      seatIds: [42]
+        '500': { $ref: '#/components/responses/InternalError' }
+
+security:
+  - bearerAuth: []
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: The token from `POST /auth/login`. A missing, malformed, expired or wrongly signed token gets `401`.
+
+  parameters:
+    EventId:
+      name: id
+      in: path
+      required: true
+      description: The event's id. Anything that can't be one, such as `abc` or `0`, gets the same `404` as an unknown event.
+      schema: { type: integer, minimum: 1, maximum: 2147483647 }
+    HoldId:
+      name: id
+      in: path
+      required: true
+      description: The hold's id. A malformed one gets the same `404` as an unknown hold.
+      schema: { type: string, format: uuid }
+    IdempotencyKeyOptional:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Optional. With it, a retry of the same request returns the first answer.
+      schema: { $ref: '#/components/schemas/IdempotencyKey' }
+    IdempotencyKeyRequired:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: One key per payment attempt, kept for every retry of it.
+      schema: { $ref: '#/components/schemas/IdempotencyKey' }
+
+  headers:
+    X-Request-Id:
+      description: The request's id, also in the API's log line for it. Echoed when the client sent a valid one.
+      schema: { type: string, pattern: '^[\w-]{1,128}$' }
+    Idempotent-Replayed:
+      description: '`true` when this is the saved answer to an earlier request with the same key.'
+      schema: { const: 'true' }
+    NoStore:
+      description: Seat states change by the second, so nothing may keep a copy.
+      schema: { const: no-store }
+    RateLimit:
+      description: The remaining requests in this window and the seconds until it resets (IETF draft 8).
+      schema: { type: string }
+      example: '"10-in-1min"; r=9; t=60'
+    RateLimit-Policy:
+      description: The limit, 10 requests a minute per IP address, and a hash naming the client (IETF draft 8).
+      schema: { type: string }
+      example: '"10-in-1min"; q=10; w=60; pk=:MjQ1YzBmZmMwZjZh:'
+
+  responses:
+    Unauthorized:
+      description: The token is missing, malformed, expired or wrongly signed.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            UNAUTHORIZED:
+              value:
+                error:
+                  code: UNAUTHORIZED
+                  message: Log in to continue.
+    EventNotFound:
+      description: No such event.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            NOT_FOUND:
+              value:
+                error:
+                  code: NOT_FOUND
+                  message: This event does not exist.
+    HoldNotFound:
+      description: No such hold for this fan.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            NOT_FOUND:
+              value:
+                error:
+                  code: NOT_FOUND
+                  message: This hold does not exist.
+    IdempotencyKeyReused:
+      description: This key was already used for a different request.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            IDEMPOTENCY_KEY_REUSED:
+              value:
+                error:
+                  code: IDEMPOTENCY_KEY_REUSED
+                  message: This Idempotency-Key was already used for a different request. Use a new key.
+    RateLimited:
+      description: Over 10 requests to `/auth/*` from this IP address in a minute.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+        RateLimit: { $ref: '#/components/headers/RateLimit' }
+        RateLimit-Policy: { $ref: '#/components/headers/RateLimit-Policy' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            RATE_LIMITED:
+              value:
+                error:
+                  code: RATE_LIMITED
+                  message: Too many attempts. Wait a minute, then try again.
+    InternalError:
+      description: An unexpected failure. The details are only in the API's log, under the request id.
+      headers:
+        X-Request-Id: { $ref: '#/components/headers/X-Request-Id' }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            INTERNAL_ERROR:
+              value:
+                error:
+                  code: INTERNAL_ERROR
+                  message: Something went wrong. Please try again.
+
+  examples:
+    DatabaseUnavailable:
+      value:
+        error:
+          code: DATABASE_UNAVAILABLE
+          message: The database is unavailable.
+    SeatBusy:
+      value:
+        error:
+          code: SEAT_BUSY
+          message: Those seats are busy right now. Try again in a moment.
+    RequestInProgress:
+      value:
+        error:
+          code: REQUEST_IN_PROGRESS
+          message: This request is still being processed. Try again in a moment with the same key.
+    PaidOrder:
+      value:
+        orderId: 1a943714-35f4-4de0-8a51-ec5785481bbb
+        holdId: 54a48b79-c360-49d3-9440-3362d8253ae7
+        status: paid
+        amountPaise: 900000
+        createdAt: '2026-11-06T15:41:52.112Z'
+        tickets:
+          - { id: 1, seatId: 41, section: Lateral Este, row: B, number: 16, pricePaise: 450000 }
+          - { id: 2, seatId: 42, section: Lateral Este, row: B, number: 17, pricePaise: 450000 }
+
+  schemas:
+    Error:
+      description: Every error answer (requirements.md §6.2).
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          additionalProperties: false
+          properties:
+            code: { $ref: '#/components/schemas/ErrorCode' }
+            message:
+              type: string
+              description: Written for the fan to read.
+            seatIds:
+              description: The seats that caused the error, when particular seats did.
+              type: array
+              minItems: 1
+              items: { $ref: '#/components/schemas/SeatId' }
+    ErrorCode:
+      description: requirements.md §6.3.
+      type: string
+      enum:
+        - VALIDATION_FAILED
+        - UNAUTHORIZED
+        - PAYMENT_DECLINED
+        - NOT_FOUND
+        - EMAIL_TAKEN
+        - SEAT_TAKEN
+        - SEAT_BUSY
+        - HOLD_EXPIRED
+        - SEAT_LOST_REFUNDED
+        - PAYMENT_IN_PROGRESS
+        - REQUEST_IN_PROGRESS
+        - IDEMPOTENCY_KEY_REUSED
+        - RATE_LIMITED
+        - INTERNAL_ERROR
+        - PAYMENT_UNAVAILABLE
+        - DATABASE_UNAVAILABLE
+    IdempotencyKey:
+      description: 1 to 128 visible ASCII characters, such as a UUID.
+      type: string
+      pattern: '^[\x21-\x7e]{1,128}$'
+      examples: [5b0e7d1c-2f4a-4c39-9a1e-8d6f3b2c1a07]
+    SeatId:
+      type: integer
+      minimum: 1
+      maximum: 2147483647
+    Paise:
+      description: Money in whole paise (₹1 = 100 paise).
+      type: integer
+      minimum: 0
+    SignupRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+          maxLength: 254
+        password:
+          type: string
+          minLength: 8
+          description: At least 8 characters and at most 72 bytes in UTF-8, the most bcrypt reads.
+    LoginRequest:
+      type: object
+      required: [email, password]
+      properties:
+        email: { type: string, format: email }
+        password: { type: string, minLength: 1 }
+    User:
+      type: object
+      required: [id, email]
+      additionalProperties: false
+      properties:
+        id: { type: integer, minimum: 1 }
+        email: { type: string, format: email }
+    Token:
+      type: object
+      required: [token]
+      additionalProperties: false
+      properties:
+        token:
+          type: string
+          description: A JWT whose subject is the fan's id.
+    SeatState:
+      type: string
+      enum: [available, held, sold]
+    Seat:
+      type: object
+      required: [id, section, row, number, pricePaise, state]
+      additionalProperties: false
+      properties:
+        id: { $ref: '#/components/schemas/SeatId' }
+        section:
+          type: string
+          examples: [Lateral Este]
+        row:
+          type: string
+          examples: [F]
+        number: { type: integer, minimum: 1 }
+        pricePaise: { $ref: '#/components/schemas/Paise' }
+        state: { $ref: '#/components/schemas/SeatState' }
+    SeatMap:
+      type: object
+      required: [event, seats]
+      additionalProperties: false
+      properties:
+        event:
+          type: object
+          required: [id, name, startsAt]
+          additionalProperties: false
+          properties:
+            id: { type: integer, minimum: 1 }
+            name: { type: string }
+            startsAt: { type: string, format: date-time }
+        seats:
+          type: array
+          items: { $ref: '#/components/schemas/Seat' }
+    SeatStates:
+      type: object
+      required: [held, sold]
+      additionalProperties: false
+      properties:
+        held:
+          type: array
+          items: { $ref: '#/components/schemas/SeatId' }
+        sold:
+          type: array
+          items: { $ref: '#/components/schemas/SeatId' }
+    HoldRequest:
+      type: object
+      required: [seatIds]
+      properties:
+        seatIds:
+          type: array
+          minItems: 1
+          maxItems: 6
+          uniqueItems: true
+          items: { $ref: '#/components/schemas/SeatId' }
+    Hold:
+      type: object
+      required: [holdId, seatIds, amountPaise, expiresAt]
+      additionalProperties: false
+      properties:
+        holdId: { type: string, format: uuid }
+        seatIds:
+          description: In ascending order.
+          type: array
+          minItems: 1
+          maxItems: 6
+          items: { $ref: '#/components/schemas/SeatId' }
+        amountPaise: { $ref: '#/components/schemas/Paise' }
+        expiresAt:
+          type: string
+          format: date-time
+          description: When the hold lapses, by the database's clock.
+    OrderStatus:
+      description: '`pending` and `paying` before the charge, `paid` with tickets, `refunded` after seats were lost.'
+      type: string
+      enum: [pending, paying, paid, refunded]
+    Ticket:
+      type: object
+      required: [id, seatId, section, row, number, pricePaise]
+      additionalProperties: false
+      properties:
+        id: { type: integer, minimum: 1 }
+        seatId: { $ref: '#/components/schemas/SeatId' }
+        section: { type: string }
+        row: { type: string }
+        number: { type: integer, minimum: 1 }
+        pricePaise: { $ref: '#/components/schemas/Paise' }
+    Order:
+      type: object
+      required: [orderId, holdId, status, amountPaise, createdAt, tickets]
+      additionalProperties: false
+      properties:
+        orderId: { type: string, format: uuid }
+        holdId: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        amountPaise: { $ref: '#/components/schemas/Paise' }
+        createdAt: { type: string, format: date-time }
+        tickets:
+          description: One per seat once the order is paid; empty otherwise.
+          type: array
+          items: { $ref: '#/components/schemas/Ticket' }

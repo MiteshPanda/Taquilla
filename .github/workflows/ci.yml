@@ -34,6 +34,7 @@ jobs:
       - run: npm ci
       - run: npm run format:check
       - run: npm run lint
+      - run: npm run lint:api
       - run: npm run typecheck
       - run: npm run build
       - run: npm run migrate

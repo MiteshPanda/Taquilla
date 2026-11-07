@@ -253,6 +253,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `npm test` | Run the concurrency, race, expiry, checkout and web client test suites |
 | `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout`, `idempotency`, the payment mock's charge logic, and the web's API client and login |
 | `npm run lint` | Run ESLint with type-checked rules; any warning fails |
+| `npm run lint:api` | Lint the OpenAPI spec, `docs/openapi.yaml`, with Redocly CLI; any problem fails |
 | `npm run format` | Format the code with Prettier (`npm run format:check` only checks it) |
 | `npm run typecheck` | Type-check every package with TypeScript in `strict` mode |
 | `npm run migrate` | Apply any migrations not yet applied, the API's and then the payment mock's; safe to run again |
@@ -343,6 +344,13 @@ curl -X POST localhost:4000/charges \
 ```
 
 ## API
+
+The full contract is the OpenAPI 3.1 spec, [`docs/openapi.yaml`](docs/openapi.yaml). It covers every route, request and answer schema, header and error code, with examples. Two checks keep it true:
+
+- **`npm run lint:api`** lints it with Redocly CLI's strictest ruleset, which also checks every example against its schema.
+- **`api/test/openapi.test.ts`** checks it against the code: every route the API serves is in the spec, and every operation in the spec is a route. It also runs the real API, Postgres and the payment mock through every operation, and checks each answer's status, headers and body against the spec.
+
+To read it as a page, run `npx redocly build-docs docs/openapi.yaml` and open `redoc-static.html`, or load the file into any OpenAPI viewer.
 
 | Method | Path | Auth | What it does | Success | Errors |
 | --- | --- | --- | --- | --- | --- |
@@ -442,7 +450,7 @@ Every error has the same shape:
 }
 ```
 
-The full list of error codes is in [requirements.md](requirements.md#63-error-codes).
+The full list of error codes is in [requirements.md](requirements.md#63-error-codes) and in the spec's `ErrorCode` schema.
 
 ## Testing
 
@@ -453,6 +461,9 @@ docker compose up -d postgres   # the tests run against the taquilla_test databa
 npm test
 ```
 
+- **OpenAPI spec:**
+  - **Routes:** the API's routes and the spec's operations match one to one, and only the dev route is marked `Dev`. The spec's error codes are exactly the API's.
+  - **Answers:** the real API, Postgres and payment mock are taken through every operation. Each answer's status must be one the spec lists for it, and its body must match that answer's schema, with no extra fields. A fixed `Cache-Control` must match too. Every documented success and `4xx` is reached.
 - **Naive buy:** it sells a free seat and refuses a sold one when requests come one at a time, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production`.
 - **Seat map:** 2,000 seats in order, a lapsed hold reads `available`, a locked seat doesn't make the map wait, and unknown or malformed event ids get `404`. The states route lists live holds and sales in id order but not a lapsed hold, agrees with the full map on every seat, stays under 10 KB with every seat sold, and doesn't wait for a locked seat either.
 - **Tokens:** `npm run tokens` writes a token for each of the 1,000 seeded fans, and every one of them gets past `requireAuth`.
@@ -498,7 +509,7 @@ Every push and pull request runs [the CI workflow](.github/workflows/ci.yml), in
 
 | Job | What it runs |
 | --- | --- |
-| `test` | Against a Postgres 16 service container: `npm ci`, format check, lint, typecheck, the build of every package, migrate and the test suite |
+| `test` | Against a Postgres 16 service container: `npm ci`, format check, lint, the OpenAPI lint, typecheck, the build of every package, migrate and the test suite |
 | `stack` | Builds the three images and starts the whole stack with `docker compose up --build --wait`, as on a fresh clone. Then `npm run tokens`, the k6 smoke test (`npm run smoke`, k6 2.3.0) and `npm run audit` against it. On a failure it prints every service's log |
 | `audit` | `npm audit --audit-level=high`, apart from the rest, so a new advisory can't hide whether the code passes |
 
@@ -717,10 +728,12 @@ taquilla/
 ├── scripts/                 # reset, tokens, audit
 ├── docs/
 │   ├── adr/                 # architecture decision records
-│   └── benchmarks.md        # results, CPU profile, tuning and query plans
+│   ├── benchmarks.md        # results, CPU profile, tuning and query plans
+│   └── openapi.yaml         # the API contract, OpenAPI 3.1
 ├── .github/                 # CI workflow, Dependabot, pull request template
 ├── docker-compose.yml       # the whole stack, in start-up order
 ├── .dockerignore            # what a build may see, and nothing else
+├── redocly.yaml             # Redocly CLI settings for npm run lint:api
 ├── .env.example
 └── requirements.md
 ```
@@ -742,6 +755,7 @@ taquilla/
 - Martin Kleppmann, [*Designing Data-Intensive Applications*](https://dataintensive.net/), the chapter on transactions
 - Brandur Leach, [Implementing Stripe-like Idempotency Keys in Postgres](https://brandur.org/idempotency-keys)
 - [Grafana k6 documentation](https://grafana.com/docs/k6/latest/)
+- [OpenAPI Specification 3.1](https://spec.openapis.org/oas/v3.1.0)
 
 ## Author
 

@@ -1,0 +1,6 @@
+# Problems Redocly CLI reports that are true of this API on purpose (WP 8.3).
+docs/openapi.yaml:
+  # The health checks take no input and need no login, so nothing a client sends can get a 4xx.
+  operation-4xx-response:
+    - '#/paths/~1health/get/responses'
+    - '#/paths/~1ready/get/responses'

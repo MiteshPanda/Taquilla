@@ -3,3 +3,4 @@ dist/
 coverage/
 .env
 loadtest/tokens.json
+redoc-static.html
