@@ -8,7 +8,7 @@ WP 8.4. The demo runs on three free tiers:
 | API | [Render](https://render.com) | One web service from `api/Dockerfile`, with the payment mock and the sweeper in the API's process |
 | Page | [Vercel](https://vercel.com) | The static build of `web/` |
 
-Each account is yours, and every secret goes only into that host's dashboard. Nothing secret is committed: `render.yaml` and `vercel.json` hold only the settings that aren't.
+Each account is yours, and every secret goes only into that host's dashboard. Nothing secret is committed: `render.yaml` and `web/vercel.json` hold only the settings that aren't.
 
 > **Never load-test the hosted demo.** The free tiers are small and shared, and their terms forbid it. The load tests are for a stack on your own machine.
 
@@ -55,7 +55,10 @@ The seeded fans' password is `SEED_PASSWORD`, `taquilla-dev` by default. The pag
 
 ## 3. The page, on Vercel
 
-1. **Import the project:** in Vercel, **Add New > Project**, then import this repository. Keep **Root Directory** as the repository root, because `vercel.json` there sets the install, the build and the output folder.
+1. **Import the project:** in Vercel, **Add New > Project**, then import this repository.
+   - **Root Directory:** `web`. At the repository root, Vercel would take the API's `api/` folder for serverless functions and try to deploy every file in it.
+   - **Application Preset:** **Other**, not **Services**. Vercel offers Services because it sees several apps, but only the page belongs on Vercel.
+   - **Build settings:** leave them alone. `web/vercel.json` installs and builds from the repository root (`cd ..`), since the page shares the lockfile and the API's login rules, and serves `web/dist`. Vercel includes the files outside `web` by default; keep that on.
 2. **Set two environment variables** for Production:
    - **`VITE_API_URL`:** the Render address, such as `https://taquilla-api.onrender.com`.
    - **`VITE_DEMO_PASSWORD`:** the same value as `SEED_PASSWORD`, so `taquilla-dev` unless you changed it.
@@ -63,7 +66,7 @@ The seeded fans' password is `SEED_PASSWORD`, `taquilla-dev` by default. The pag
    Vite builds both into the page, so changing one needs a redeploy.
 3. **Deploy,** then note the production address, such as `https://taquilla.vercel.app`.
 
-`vercel.json` also sends the page's security headers:
+`web/vercel.json` also sends the page's security headers:
 - **A Content Security Policy:** only the page's own scripts, styles and fonts, and calls only to itself and `https://*.onrender.com`. If the API moves to its own domain, add that domain to `connect-src`.
 - **Caching:** a year for the fingerprinted assets.
 
