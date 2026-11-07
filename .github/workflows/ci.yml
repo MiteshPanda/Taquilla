@@ -1,4 +1,3 @@
-# The k6 smoke test and the invariant audit that NFR-12 also asks for arrive in WP 8.2.
 name: CI
 
 on:
@@ -41,6 +40,40 @@ jobs:
         env:
           DATABASE_URL: postgres://taquilla:taquilla@localhost:5432/taquilla_test
       - run: npm test
+
+  # NFR-12 and WP 8.2: builds the three images and starts the whole stack from them, as a fresh
+  # clone would, so a broken Dockerfile or service fails here. Then a short k6 smoke test runs
+  # against it, and the audit checks the four rules on what the smoke test sold.
+  stack:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1.2.2
+        with:
+          k6-version: 2.3.0
+      # The scripts mint tokens and run the audit from the host.
+      - run: npm ci
+      # A fresh secret for each run, shared by the API in Docker and npm run tokens.
+      - name: Make a JWT secret for this run
+        run: |
+          secret="$(openssl rand -hex 32)"
+          echo "::add-mask::$secret"
+          echo "JWT_SECRET=$secret" >> "$GITHUB_ENV"
+      # Builds the images, migrates, seeds an empty stadium and waits until every service is healthy.
+      - name: Build the images and start the stack
+        run: docker compose up --build --wait
+      - run: npm run tokens
+      - name: k6 smoke test
+        run: npm run smoke
+      - run: npm run audit
+      - name: Show the services' logs
+        if: failure()
+        run: docker compose logs --no-color --timestamps
 
   # Its own job, so a new advisory can't hide whether the code itself passes.
   audit:

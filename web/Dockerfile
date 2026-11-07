@@ -1,15 +1,15 @@
-# check=skip=SecretsUsedInArgOrEnv
+# check=skip=SecretsUsedInArgOrEnv;error=true
 # The web page's image (NFR-10): the static build, served by nginx as an unprivileged user.
 # Build it from the repo root: docker build -f web/Dockerfile .
 #
 # Vite bakes VITE_API_URL and VITE_DEMO_PASSWORD into the page, so they're build arguments and a
 # change needs a rebuild. The demo password isn't a secret: it ends up in the page for anyone to
 # read, by design. That's why the check that flags build arguments named like passwords is off.
+#
+# Any warning from Docker's build checks fails the build (the check line above). Each FROM names
+# its base image in full, so Dependabot can keep them up to date.
 
-ARG NODE_IMAGE=node:26.13.0-alpine3.24
-ARG NGINX_IMAGE=nginxinc/nginx-unprivileged:1.30.6-alpine
-
-FROM ${NODE_IMAGE} AS build
+FROM node:26.13.0-alpine3.24 AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY api/package.json api/
@@ -28,7 +28,7 @@ RUN npm run build --workspace=@taquilla/web
 RUN api_origin="$(node -p 'new URL(process.env.VITE_API_URL).origin')" \
     && sed "s|__API_ORIGIN__|${api_origin}|" web/nginx.conf > /tmp/default.conf
 
-FROM ${NGINX_IMAGE}
+FROM nginxinc/nginx-unprivileged:1.30.6-alpine
 COPY --from=build /tmp/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/web/dist /usr/share/nginx/html
 EXPOSE 8080
