@@ -10,6 +10,8 @@ import { errorHandler, notFoundHandler } from './errors.js';
 import { REPLAYED_HEADER } from './idempotency/middleware.js';
 
 const REQUEST_ID_HEADER = 'X-Request-Id';
+// Docker asks for one of these every 10 seconds (WP 8.1), so a passing check is logged at debug.
+const HEALTH_CHECKS = new Set(['/health', '/ready']);
 const SAFE_REQUEST_ID = /^[\w-]{1,128}$/;
 
 export interface AppOptions {
@@ -32,8 +34,9 @@ export function createApp({ config, logger, routes }: AppOptions): Express {
         res.setHeader(REQUEST_ID_HEADER, id);
         return id;
       },
-      customLogLevel: (_req, res, err) => {
+      customLogLevel: (req, res, err) => {
         if (err || res.err || res.statusCode >= 500) return 'error';
+        if (HEALTH_CHECKS.has(req.url ?? '')) return 'debug';
         // A 409 is the expected answer when fans race for a seat; a 429 may be someone guessing passwords.
         if (res.statusCode === 409) return 'debug';
         return res.statusCode === 429 ? 'warn' : 'info';

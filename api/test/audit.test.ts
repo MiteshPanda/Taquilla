@@ -9,7 +9,7 @@ import { createTestSchema } from '../../payments-mock/test/helpers/mock.js';
 import { formatReport, runAudit } from '../../scripts/audit.js';
 import type { AuditReport } from '../../scripts/audit.js';
 import { resetDatabase } from '../../scripts/reset.js';
-import { seedStadium } from '../../scripts/seed.js';
+import { seedStadium } from '../src/seed.js';
 import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';
 import { createLogger } from '../src/logger.js';

@@ -1,4 +1,16 @@
-# Services are added as they are built: api, payments-mock, sweeper, web.
+# The whole stack (NFR-10): `docker compose up --build`, then open http://localhost:8080.
+#
+# Start-up order, each step waiting for the one before:
+#   postgres (healthy) -> migrate and payments-migrate (done) -> seed (done)
+#   -> api (healthy) -> web
+# The sweeper starts once the API's migrations are done, and the payment mock once its own are.
+#
+# ${...} values come from .env, or the defaults here when it doesn't set them. Each service gets
+# only the variables it uses, so the API's secret never reaches the others. The database
+# password is for local use only, like DATABASE_URL in .env.example.
+
+x-database-url: &database-url postgres://taquilla:taquilla@postgres:5432/taquilla
+
 services:
   postgres:
     image: postgres:16
@@ -21,40 +33,98 @@ services:
       retries: 10
       start_period: 30s
 
-  # Frees lapsed holds every SWEEP_INTERVAL_SECONDS (FR-EXP-3). Until WP 8.1 builds real images,
-  # it runs the source on the stock Node image. Its Linux dependencies go into its own volumes,
-  # so the host's node_modules is never touched.
-  sweeper:
-    image: node:26-slim
-    working_dir: /app
-    # exec makes Node process 1, so `docker compose stop` reaches it as SIGTERM and it stops cleanly.
-    command: >-
-      sh -c "npm ci --ignore-scripts --no-audit --no-fund
-      && exec node --import tsx api/src/jobs/sweeper-cli.ts"
+  # One image serves the API, its migrations, the seed and the sweeper, each with its own command.
+  # The api service builds it, and Compose builds it before starting anything that uses it.
+
+  # Applies the API's migrations, then exits. In production mode, so dev-only tables are skipped.
+  migrate:
+    image: taquilla-api
+    command: ['node', '--enable-source-maps', 'dist/migrate-cli.js']
     environment:
-      DATABASE_URL: postgres://taquilla:taquilla@postgres:5432/taquilla
-      SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-10}
+      DATABASE_URL: *database-url
       LOG_LEVEL: ${LOG_LEVEL:-info}
-    volumes:
-      - .:/app
-      - sweeper-node-modules:/app/node_modules
-      - sweeper-api-node-modules:/app/api/node_modules
     depends_on:
       postgres:
         condition: service_healthy
+
+  # Seeds 1 match, 2,000 seats and 1,000 fans into an empty database, then exits. A database
+  # that already has a match or fans is left as it is, so this is safe on every start.
+  seed:
+    image: taquilla-api
+    command: ['node', '--enable-source-maps', 'dist/seed-cli.js']
+    environment:
+      DATABASE_URL: *database-url
+      SEED_PASSWORD: ${SEED_PASSWORD:-taquilla-dev}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    image: taquilla-api
+    environment:
+      DATABASE_URL: *database-url
+      # Required. Set it in .env; the API refuses to start without it.
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-1h}
+      BOOKING_STRATEGY: ${BOOKING_STRATEGY:-lock}
+      HOLD_SECONDS: ${HOLD_SECONDS:-300}
+      PAYMENTS_URL: http://payments-mock:4000
+      # The page from this stack, and the Vite dev server on the host (npm run web).
+      CORS_ORIGINS: http://localhost:8080,http://localhost:5173
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    ports:
+      - '127.0.0.1:3000:3000'
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      seed:
+        condition: service_completed_successfully
     restart: unless-stopped
 
-  # The fake payment provider (FR-MOCK-1). Like the sweeper, it runs the source on the stock Node
-  # image until WP 8.1, and creates its own payments schema before it starts serving.
-  payments-mock:
-    image: node:26-slim
-    working_dir: /app
-    command: >-
-      sh -c "npm ci --ignore-scripts --no-audit --no-fund
-      && node --import tsx payments-mock/src/migrate-cli.ts
-      && exec node --import tsx payments-mock/src/server.ts"
+  # Frees lapsed holds every SWEEP_INTERVAL_SECONDS (FR-EXP-3). It serves no HTTP, so its health
+  # check reads the heartbeat file it touches after every successful run.
+  sweeper:
+    image: taquilla-api
+    command: ['node', '--enable-source-maps', 'dist/jobs/sweeper-cli.js']
     environment:
-      DATABASE_URL: postgres://taquilla:taquilla@postgres:5432/taquilla
+      DATABASE_URL: *database-url
+      SWEEP_INTERVAL_SECONDS: ${SWEEP_INTERVAL_SECONDS:-10}
+      SWEEPER_HEARTBEAT_FILE: /tmp/sweeper-heartbeat
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    healthcheck:
+      test: ['CMD', 'node', 'dist/jobs/sweeper-health-cli.js']
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # Creates the payment mock's payments schema, then exits.
+  payments-migrate:
+    image: taquilla-payments-mock
+    command: ['node', '--enable-source-maps', 'dist/migrate-cli.js']
+    environment:
+      DATABASE_URL: *database-url
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  # The fake payment provider (FR-MOCK-1). Only the API calls it; the port is published for curl.
+  payments-mock:
+    build:
+      context: .
+      dockerfile: payments-mock/Dockerfile
+    image: taquilla-payments-mock
+    environment:
+      DATABASE_URL: *database-url
       DECLINE_RATE: ${DECLINE_RATE:-0.05}
       LOST_RESPONSE_RATE: ${LOST_RESPONSE_RATE:-0.02}
       LATENCY_MIN_MS: ${LATENCY_MIN_MS:-100}
@@ -62,18 +132,27 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
       - '127.0.0.1:4000:4000'
-    volumes:
-      - .:/app
-      - payments-node-modules:/app/node_modules
-      - payments-api-node-modules:/app/api/node_modules
     depends_on:
-      postgres:
+      payments-migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  # The page, built into static files and served by nginx. The browser calls the API at
+  # VITE_API_URL itself, so that address must work from the browser, not from inside Docker.
+  web:
+    build:
+      context: .
+      dockerfile: web/Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:3000}
+        VITE_DEMO_PASSWORD: ${VITE_DEMO_PASSWORD:-taquilla-dev}
+    image: taquilla-web
+    ports:
+      - '127.0.0.1:8080:8080'
+    depends_on:
+      api:
         condition: service_healthy
     restart: unless-stopped
 
 volumes:
   postgres-data:
-  sweeper-node-modules:
-  sweeper-api-node-modules:
-  payments-node-modules:
-  payments-api-node-modules:

@@ -65,6 +65,13 @@ const resetConfigSchema = configSchema.pick({
   SEED_PASSWORD: true,
 });
 
+// Seeds an empty database (WP 8.1). It never deletes anything, so unlike a reset it may run anywhere.
+const seedConfigSchema = configSchema.pick({
+  LOG_LEVEL: true,
+  DATABASE_URL: true,
+  SEED_PASSWORD: true,
+});
+
 // Mints logins for the seeded fans, so it needs the secret and lifetime the API uses.
 const tokensConfigSchema = configSchema.pick({
   NODE_ENV: true,
@@ -74,12 +81,18 @@ const tokensConfigSchema = configSchema.pick({
   JWT_EXPIRES_IN: true,
 });
 
-const sweeperConfigSchema = configSchema.pick({
-  NODE_ENV: true,
-  LOG_LEVEL: true,
-  DATABASE_URL: true,
-  SWEEP_INTERVAL_SECONDS: true,
-});
+const sweeperConfigSchema = configSchema
+  .pick({
+    NODE_ENV: true,
+    LOG_LEVEL: true,
+    DATABASE_URL: true,
+    SWEEP_INTERVAL_SECONDS: true,
+  })
+  .extend({
+    // Touched after every successful run, for the container's health check (WP 8.1). Unset, the
+    // sweeper keeps no such file.
+    SWEEPER_HEARTBEAT_FILE: z.string().min(1).optional(),
+  });
 
 // The audit only reads, so it needs nothing but the database.
 const auditConfigSchema = configSchema.pick({ LOG_LEVEL: true, DATABASE_URL: true });
@@ -87,6 +100,7 @@ const auditConfigSchema = configSchema.pick({ LOG_LEVEL: true, DATABASE_URL: tru
 export type Config = z.infer<typeof configSchema>;
 export type MigrateConfig = z.infer<typeof migrateConfigSchema>;
 export type ResetConfig = z.infer<typeof resetConfigSchema>;
+export type SeedConfig = z.infer<typeof seedConfigSchema>;
 export type TokensConfig = z.infer<typeof tokensConfigSchema>;
 export type SweeperConfig = z.infer<typeof sweeperConfigSchema>;
 export type AuditConfig = z.infer<typeof auditConfigSchema>;
@@ -106,6 +120,10 @@ export function parseMigrateConfig(env: NodeJS.ProcessEnv): MigrateConfig {
 
 export function parseResetConfig(env: NodeJS.ProcessEnv): ResetConfig {
   return resetConfigSchema.parse(withoutBlanks(env));
+}
+
+export function parseSeedConfig(env: NodeJS.ProcessEnv): SeedConfig {
+  return seedConfigSchema.parse(withoutBlanks(env));
 }
 
 export function parseTokensConfig(env: NodeJS.ProcessEnv): TokensConfig {
@@ -130,6 +148,10 @@ export function loadMigrateConfig(): MigrateConfig {
 
 export function loadResetConfig(): ResetConfig {
   return loadOrExit(parseResetConfig);
+}
+
+export function loadSeedConfig(): SeedConfig {
+  return loadOrExit(parseSeedConfig);
 }
 
 export function loadTokensConfig(): TokensConfig {

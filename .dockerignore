@@ -1,0 +1,27 @@
+# The images are built from the repo root (WP 8.1). Everything is left out of the build context
+# except what a build needs, so a secret (.env, loadtest/tokens.json) or the host's node_modules
+# can never reach an image, and a change to the docs or tests never invalidates a build.
+*
+
+!package.json
+!package-lock.json
+!tsconfig.base.json
+
+!api/package.json
+!api/tsconfig.json
+!api/tsconfig.build.json
+!api/src/
+!api/migrations/
+
+!payments-mock/package.json
+!payments-mock/tsconfig.json
+!payments-mock/tsconfig.build.json
+!payments-mock/src/
+!payments-mock/migrations/
+
+!web/package.json
+!web/tsconfig.json
+!web/vite.config.ts
+!web/index.html
+!web/src/
+!web/nginx.conf

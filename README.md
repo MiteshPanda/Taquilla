@@ -181,8 +181,8 @@ sequenceDiagram
 
 ### Prerequisites
 
-- Docker with Compose v2
-- Node.js (current LTS) and npm
+- Docker with Compose v2, which is all the stack needs
+- Node.js (current LTS) and npm, for the scripts, the tests and load-test tokens
 - k6, for load tests
 - 8 GB of RAM or more to run 1,000 virtual users beside the stack (use 500 on smaller machines)
 
@@ -192,25 +192,52 @@ sequenceDiagram
 git clone https://github.com/MiteshPanda/taquilla.git
 cd taquilla
 cp .env.example .env            # then set JWT_SECRET
-npm install
-docker compose up -d --build    # Postgres, API, payment mock, sweeper, web
-npm run reset                   # 1 match, 2,000 seats, 1,000 test fans
+docker compose up --build --wait
 ```
 
-Open the seat map at http://localhost:5173. The API listens on http://localhost:3000.
+Open the seat map at http://localhost:8080. The API listens on http://localhost:3000 and the payment mock on http://localhost:4000.
 
-To run the expiry sweeper alongside it, use `docker compose up -d sweeper`, or `npm run sweeper` on the host. It needs a migrated database (`npm run reset`). In Docker, the first start installs its dependencies, which takes about a minute.
+Docker is all this needs. The first run builds the three images, which takes a few minutes, and `--wait` returns once every service is healthy. An empty database gets 1 match, 2,000 seats and 1,000 test fans, so **Log in as demo fan** works straight away. For the scripts below, run `npm install` too.
 
-To run the payment mock, use `docker compose up -d payments-mock`, which creates its `payments` schema and then listens on `127.0.0.1:4000`. On the host, run `npm run migrate` once, then `npm run payments`.
-
-To run the web page, use `npm run web` on the host. It serves the page at http://localhost:5173, where you can sign up, log in, or press **Log in as demo fan** to log in as a random seeded fan (after `npm run reset`). Everyone sees the ground from above at night, every seat drawn in its state, so the bowl fills with a crowd as the match sells, beside one stand's seats at a time, all kept fresh every 2 to 3 seconds. Point at a seat, on the plan or in the stand, to see the view from it: the pitch, the other stands with tonight's crowd, and the rows in front of you. Pick up to 6 seats, in the stand or with a click on the plan, and they rise out of it in gold and, once logged in, hold them: the hold counts down to its expiry and can be released, or paid for, which shows your tickets. Payments go to the mock provider, so run it beside the API (`npm run payments`). If someone takes a seat first, the page says which one and refreshes the map. Open two tabs to be two fans, since each tab has its own login. It also shows whether the API at `VITE_API_URL` answers `/health`. Until WP 8.1 adds its container, `docker compose up` doesn't start it.
+On the page you can sign up, log in, or press **Log in as demo fan** to log in as a random seeded fan. Everyone sees the ground from above at night, every seat drawn in its state, so the bowl fills with a crowd as the match sells, beside one stand's seats at a time, all kept fresh every 2 to 3 seconds. Point at a seat, on the plan or in the stand, to see the view from it: the pitch, the other stands with tonight's crowd, and the rows in front of you. Pick up to 6 seats, in the stand or with a click on the plan, and they rise out of it in gold and, once logged in, hold them: the hold counts down to its expiry and can be released, or paid for, which shows your tickets. Payments go to the mock provider. If someone takes a seat first, the page says which one and refreshes the map. Open two tabs to be two fans, since each tab has its own login. It also shows whether the API at `VITE_API_URL` answers `/health`.
 
 To run only the database, use `docker compose up -d postgres`. It creates `taquilla` and `taquilla_test`, and listens on `127.0.0.1:5432`. The init script runs only on an empty volume, so `docker compose down -v` is how you start again from nothing; it deletes all local data.
+
+### The containers
+
+`docker compose up` starts each service once the one it needs is ready:
+
+| Service | Image | What it does | Ready when |
+| --- | --- | --- | --- |
+| `postgres` | `postgres:16` | The database | `pg_isready` answers |
+| `migrate` | `taquilla-api` | Applies the API's migrations, then exits | It exits with code 0 |
+| `payments-migrate` | `taquilla-payments-mock` | Creates the mock's `payments` schema, then exits | It exits with code 0 |
+| `seed` | `taquilla-api` | Seeds the stadium into an empty database, then exits | It exits with code 0 |
+| `api` | `taquilla-api` | The API, after `migrate` and `seed` | `GET /ready` answers `200`, so it can reach the database |
+| `sweeper` | `taquilla-api` | Frees lapsed holds, after `migrate` | Its last successful run ended within three intervals, and at most 30 s ago at the default |
+| `payments-mock` | `taquilla-payments-mock` | The fake provider, after `payments-migrate` | `GET /health` answers `200` |
+| `web` | `taquilla-web` | nginx serving the built page, once the API is healthy | `GET /` answers `200` |
+
+- **The seed never deletes anything.** It seeds only a database with no match and no fans, so it runs on every start and leaves your data alone. `npm run reset` is still how you start again from a clean stadium.
+- **Small images, unprivileged users:**
+  - **Built in stages:** each Dockerfile compiles the TypeScript in one stage, and the final image holds the compiled code and the production dependencies only, on `node:26.13.0-alpine3.24`.
+  - **Users:** the Node services run as the image's `node` user and nginx as its own unprivileged user. Neither can change the code it runs.
+  - **The build context is a list of what's allowed in** (`.dockerignore`), so `.env`, `loadtest/tokens.json` and `node_modules` never reach a build.
+- **Production mode:**
+  - **What it means:** the images set `NODE_ENV=production`, so the API has no `/dev` routes and `migrate` skips the dev-only tables.
+  - **For the naive buy:** stop the container with `docker compose stop api`, then run `npm run reset` and `npm run dev` on the host.
+  - **Port 3000 is the container's while it runs.** Run `npm run dev`, `npm run payments` or `npm run sweeper` only after stopping that service. Otherwise both servers share the port, and you can't tell which one answers.
+- **The web image:**
+  - **Baked in:** `VITE_API_URL` and `VITE_DEMO_PASSWORD` come from `.env` as build arguments, so a change needs `docker compose up -d --build web`.
+  - **Caching:** nginx caches the fingerprinted assets for a year, has the browser check `index.html` every time, and gzips text.
+  - **Security headers:** a Content Security Policy lets the page run only its own scripts and styles, and call only itself and the API's origin. That limits what an injected script could do with the token in `sessionStorage` (ADR 5).
+- **Developing the page:** `npm run web` serves it from source on http://localhost:5173, against the API in Docker, which allows both origins.
+- **Quiet logs:** Docker's health checks run every 10 seconds, so the API and the mock log a passing one at `debug`. A failing one is still an error.
 
 ### Reproduce the headline result
 
 ```bash
-docker compose up -d --build
+docker compose up --build --wait
 npm run reset && npm run tokens              # clean stadium + tokens for 1,000 fans
 k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four rules
 ```
@@ -221,7 +248,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | --- | --- |
 | `npm run dev` | Start the API in watch mode |
 | `npm run web` | Start the web page's dev server on port 5173 |
-| `npm run build` | Type-check the web page and build it into `web/dist`; any warning fails the build |
+| `npm run build` | Compile the API and the payment mock into `dist/`, and type-check and build the web page into `web/dist`; any warning fails the web build |
 | `npm test` | Run the concurrency, race, expiry, checkout and web client test suites |
 | `npm run test:coverage` | Run the tests and enforce 80% line coverage on `holds`, `checkout`, `idempotency`, the payment mock's charge logic, and the web's API client and login |
 | `npm run lint` | Run ESLint with type-checked rules; any warning fails |
@@ -245,6 +272,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `BOOKING_STRATEGY` | `lock` | `lock`, `cas` or `serializable` |
 | `HOLD_SECONDS` | `300` | Hold length (tests use `2`) |
 | `SWEEP_INTERVAL_SECONDS` | `10` | How often the sweeper runs |
+| `SWEEPER_HEARTBEAT_FILE` | none | Sweeper: a file it touches after every successful run, for its container's health check |
 | `PAYMENTS_URL` | `http://localhost:4000` | Mock provider address |
 | `PAYMENTS_PORT` | `4000` | Mock: its port (`PORT` is the API's) |
 | `DECLINE_RATE` | `0.05` | Mock: share of charges declined |
@@ -260,6 +288,8 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `VITE_DEMO_PASSWORD` | `taquilla-dev` | Web: the seeded fans' password (`SEED_PASSWORD`) for **Log in as demo fan**. It ends up in the page, so use it only for shared demo accounts |
 
 The web page reads the same `.env`. Vite passes only `VITE_` variables to the browser, so the API's secrets in that file never reach it.
+
+In Docker, `docker-compose.yml` gives each service only the variables it uses, from `.env` or its own defaults. It sets `DATABASE_URL`, `PAYMENTS_URL` and `CORS_ORIGINS` itself, for the containers' network, so `.env`'s values for those apply on the host only.
 
 ### Migrations
 
@@ -482,7 +512,7 @@ k6 run loadtest/hot-seat.js
 npm run audit
 ```
 
-`sellout` and `double-click` also need the payment mock (`npm run payments`) beside the API, and the sweeper (`npm run sweeper`) for the audit's fourth rule. Reset before each run.
+`sellout` and `double-click` also need the payment mock beside the API, and the sweeper for the audit's fourth rule. `docker compose up` runs both; with the API on the host, run `npm run payments` and `npm run sweeper`. Reset before each run. To change `BOOKING_STRATEGY` or `HOLD_SECONDS` for the API in Docker, set it in `.env` and run `docker compose up -d api`.
 
 - **`sellout`:**
   - **Picking seats:** a fan picks a row and asks for adjacent seats in it. When they're taken, the fan picks again, up to three times.
@@ -619,6 +649,7 @@ taquilla/
 │   │   ├── db.ts            # pool + withTransaction helper
 │   │   ├── migrate.ts       # migration runner
 │   │   ├── migrate-cli.ts   # npm run migrate
+│   │   ├── seed.ts          # the stadium; seed-cli.ts seeds an empty database in Docker
 │   │   ├── server.ts
 │   │   ├── auth/            # signup, login, JWT middleware; rules.ts is shared with the web page
 │   │   ├── seats/           # seat map with lazy expiry
@@ -626,9 +657,10 @@ taquilla/
 │   │   ├── checkout/        # reserve → charge → confirm; payment-client.ts calls the provider
 │   │   ├── orders/          # GET /orders/:id, and the order view checkout answers with
 │   │   ├── idempotency/     # Idempotency-Key middleware
-│   │   ├── jobs/            # sweeper.ts frees expired holds; sweeper-cli.ts runs it as its own process
+│   │   ├── jobs/            # sweeper.ts frees expired holds; sweeper-cli.ts runs it, sweeper-health-cli.ts checks it
 │   │   └── dev/             # naive buy, dev only
-│   └── test/                # concurrency, race, expiry, checkout
+│   ├── test/                # concurrency, race, expiry, checkout
+│   └── Dockerfile           # the API's image, also used by migrate, seed and sweeper
 ├── payments-mock/           # fake provider with fault injection
 │   ├── migrations/          # its own numbered .sql files, applied in the payments schema
 │   ├── src/
@@ -636,7 +668,8 @@ taquilla/
 │   │   ├── charges.ts       # the SQL: one charge per key
 │   │   ├── faults.ts        # latency, declines and lost responses
 │   │   └── server.ts        # npm run payments
-│   └── test/
+│   ├── test/
+│   └── Dockerfile
 ├── web/                     # React + Vite seat map
 │   ├── src/
 │   │   ├── api/             # typed API client: every error answer becomes an ApiError
@@ -648,14 +681,17 @@ taquilla/
 │   │   ├── config.ts        # VITE_API_URL and VITE_DEMO_PASSWORD, checked by the build and the page
 │   │   ├── services.ts      # the client and session the page runs on, wired together
 │   │   └── App.tsx          # the page: login, or who is logged in
-│   └── test/
+│   ├── test/
+│   ├── Dockerfile           # builds the page, then serves it with nginx
+│   └── nginx.conf           # caching, gzip and the Content Security Policy
 ├── loadtest/                # k6 scenarios
-├── scripts/                 # reset, seed, tokens, audit
+├── scripts/                 # reset, tokens, audit
 ├── docs/
 │   ├── adr/                 # architecture decision records
 │   └── benchmarks.md        # results, CPU profile, tuning and query plans
 ├── .github/                 # CI workflow, Dependabot, pull request template
-├── docker-compose.yml
+├── docker-compose.yml       # the whole stack, in start-up order
+├── .dockerignore            # what a build may see, and nothing else
 ├── .env.example
 └── requirements.md
 ```

@@ -1,13 +1,15 @@
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { mkdtemp, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Client } from 'pg';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { seedStadium } from '../../scripts/seed.js';
+import { seedStadium } from '../src/seed.js';
 import { createDatabase } from '../src/db.js';
 import type { Database } from '../src/db.js';
-import { createSweeper, KEY_TTL_HOURS } from '../src/jobs/sweeper.js';
+import { createSweeper, heartbeatIsFresh, KEY_TTL_HOURS } from '../src/jobs/sweeper.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { schemaConnectionString } from './helpers/database.js';
@@ -15,6 +17,7 @@ import { schemaConnectionString } from './helpers/database.js';
 const SCHEMA = 'sweeper_probe';
 const CONNECTION_STRING = schemaConnectionString(SCHEMA);
 const SWEEPER_CLI = path.resolve(import.meta.dirname, '../src/jobs/sweeper-cli.ts');
+const HEALTH_CLI = path.resolve(import.meta.dirname, '../src/jobs/sweeper-health-cli.ts');
 
 interface LogLine {
   level: number;
@@ -352,14 +355,134 @@ describe('start and stop', () => {
 });
 
 // Windows can't send SIGTERM to another process (it kills it outright), so CI runs this on Linux.
+describe('the heartbeat for the container health check (WP 8.1)', () => {
+  it.each([
+    ['10 s', 10_000, 30_000],
+    ['60 s', 60_000, 180_000],
+    ['1 s, so the 30 s minimum applies', 1_000, 30_000],
+  ])(
+    'with an interval of %s, counts a run up to %i ms ago as fresh',
+    (_name, intervalMs, limitMs) => {
+      const now = 1_000_000_000;
+
+      expect(heartbeatIsFresh(now - limitMs, now, intervalMs)).toBe(true);
+      expect(heartbeatIsFresh(now - limitMs - 1, now, intervalMs)).toBe(false);
+    },
+  );
+
+  it('is recorded after each run that succeeded, and never after one that failed', async () => {
+    let calls = 0;
+    const fake = slowDatabase(1, () => (calls += 1) <= 2);
+    let beats = 0;
+    const sweeper = createSweeper({
+      db: fake.db,
+      logger,
+      intervalMs: 5,
+      onRunSucceeded: () => {
+        beats += 1;
+        return Promise.resolve();
+      },
+    });
+
+    sweeper.start();
+    await waitFor(() => Promise.resolve(fake.stats().runs >= 8));
+    await sweeper.stop();
+
+    const finished = logs.filter((line) => line.msg === 'sweep finished').length;
+    const failed = logs.filter((line) => line.msg.startsWith('sweep failed')).length;
+    expect(failed).toBe(2);
+    expect(finished).toBeGreaterThanOrEqual(3);
+    expect(beats).toBe(finished);
+  });
+
+  it('logs a heartbeat it could not record, and keeps sweeping', async () => {
+    const fake = slowDatabase(1);
+    const sweeper = createSweeper({
+      db: fake.db,
+      logger,
+      intervalMs: 5,
+      onRunSucceeded: () => Promise.reject(new Error('disk full')),
+    });
+
+    sweeper.start();
+    await waitFor(() => Promise.resolve(fake.stats().runs >= 6));
+    await sweeper.stop();
+
+    const errors = logs.filter((line) => line.level === LEVEL.error).map((line) => line.msg);
+    expect(errors.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(errors)).toEqual(new Set(['could not record the sweep for the health check']));
+  });
+
+  describe('the health check command', { timeout: 30_000 }, () => {
+    let dir: string;
+    let file: string;
+
+    beforeAll(async () => {
+      dir = await mkdtemp(path.join(tmpdir(), 'taquilla-heartbeat-'));
+      file = path.join(dir, 'heartbeat');
+    });
+
+    afterAll(async () => {
+      await rm(dir, { recursive: true, force: true });
+    });
+
+    async function check(env: Record<string, string>): Promise<{ code: number; stderr: string }> {
+      const child = spawn(process.execPath, ['--import', 'tsx', HEALTH_CLI], {
+        env: { ...process.env, SWEEP_INTERVAL_SECONDS: '10', ...env },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      let stderr = '';
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString();
+      });
+      const [code] = (await once(child, 'exit')) as [number];
+      return { code, stderr };
+    }
+
+    it('passes while the last run is recent', async () => {
+      await writeFile(file, new Date().toISOString());
+
+      expect(await check({ SWEEPER_HEARTBEAT_FILE: file })).toEqual({ code: 0, stderr: '' });
+    });
+
+    it('fails once the last run is three intervals old', async () => {
+      await writeFile(file, 'old');
+      const old = new Date(Date.now() - 31_000);
+      await utimes(file, old, old);
+
+      const { code, stderr } = await check({ SWEEPER_HEARTBEAT_FILE: file });
+
+      expect(code).toBe(1);
+      expect(stderr).toContain("The sweeper's last successful run ended at");
+    });
+
+    it('fails before the first run has finished', async () => {
+      const { code, stderr } = await check({ SWEEPER_HEARTBEAT_FILE: path.join(dir, 'none') });
+
+      expect(code).toBe(1);
+      expect(stderr).toContain('The sweeper has not finished a run yet.');
+    });
+
+    it('fails when the sweeper keeps no heartbeat', async () => {
+      const { code, stderr } = await check({ SWEEPER_HEARTBEAT_FILE: '' });
+
+      expect(code).toBe(1);
+      expect(stderr).toContain('SWEEPER_HEARTBEAT_FILE is not set');
+    });
+  });
+});
+
 describe.skipIf(process.platform === 'win32')('the sweeper process', { timeout: 30_000 }, () => {
-  it('frees lapsed seats, then stops cleanly with exit code 0 on SIGTERM', async () => {
+  it('frees lapsed seats, keeps a heartbeat, then stops cleanly with exit code 0 on SIGTERM', async () => {
     await holdSeats([41, 42], '-1 second');
+    const dir = await mkdtemp(path.join(tmpdir(), 'taquilla-sweeper-'));
+    const heartbeat = path.join(dir, 'heartbeat');
     const child = spawn(process.execPath, ['--import', 'tsx', SWEEPER_CLI], {
       env: {
         ...process.env,
         DATABASE_URL: CONNECTION_STRING,
         SWEEP_INTERVAL_SECONDS: '1',
+        SWEEPER_HEARTBEAT_FILE: heartbeat,
         LOG_LEVEL: 'info',
       },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -377,5 +500,7 @@ describe.skipIf(process.platform === 'win32')('the sweeper process', { timeout: 
     expect(stdout).toContain('"signal":"SIGTERM","msg":"sweeper stopping"');
     expect(stdout).toContain('"msg":"sweeper stopped"');
     expect(await statusOf([41, 42])).toEqual(['available', 'available']);
+    expect((await stat(heartbeat)).isFile()).toBe(true);
+    await rm(dir, { recursive: true, force: true });
   });
 });

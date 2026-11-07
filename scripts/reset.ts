@@ -6,7 +6,7 @@ import { PAYMENTS_SCHEMA } from '../payments-mock/src/db.js';
 import { runMigrations as runPaymentsMigrations } from '../payments-mock/src/migrate.js';
 import { assertLocalDevelopment } from './local-only.js';
 import type { LocalTarget } from './local-only.js';
-import { seedStadium } from './seed.js';
+import { seedStadium } from '../api/src/seed.js';
 
 export interface ResetOptions extends LocalTarget {
   seedPassword: string;

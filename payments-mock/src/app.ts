@@ -9,6 +9,8 @@ import type { Faults } from './faults.js';
 import { createChargesRouter } from './routes.js';
 
 const REQUEST_ID_HEADER = 'X-Request-Id';
+// Docker asks for this every 10 seconds (WP 8.1), so a passing check is logged at debug.
+const HEALTH_CHECK = '/health';
 const SAFE_REQUEST_ID = /^[\w-]{1,128}$/;
 
 export interface AppOptions {
@@ -33,8 +35,10 @@ export function createApp({ db, faults, logger }: AppOptions): Express {
         res.setHeader(REQUEST_ID_HEADER, id);
         return id;
       },
-      customLogLevel: (_req, res, err) =>
-        err || res.err || res.statusCode >= 500 ? 'error' : 'info',
+      customLogLevel: (req, res, err) => {
+        if (err || res.err || res.statusCode >= 500) return 'error';
+        return req.url === HEALTH_CHECK ? 'debug' : 'info';
+      },
     }),
   );
   app.use(express.json({ limit: '10kb' }));

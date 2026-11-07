@@ -34,7 +34,7 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces",
-    "build": "npm run build --workspace=@taquilla/web",
+    "build": "npm run build --workspaces",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "dev": "npm run dev --workspace=@taquilla/api",

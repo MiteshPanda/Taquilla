@@ -1,3 +1,4 @@
+import { writeFile } from 'node:fs/promises';
 import { loadSweeperConfig } from '../config.js';
 import { createDatabase } from '../db.js';
 import { createLogger } from '../logger.js';
@@ -9,7 +10,17 @@ const config = loadSweeperConfig();
 const logger = createLogger(config.LOG_LEVEL);
 // One run at a time needs one connection; a second covers the pool replacing a dropped one.
 const db = createDatabase({ connectionString: config.DATABASE_URL, logger, max: 2 });
-const sweeper = createSweeper({ db, logger, intervalMs: config.SWEEP_INTERVAL_SECONDS * 1000 });
+const heartbeatFile = config.SWEEPER_HEARTBEAT_FILE;
+const sweeper = createSweeper({
+  db,
+  logger,
+  intervalMs: config.SWEEP_INTERVAL_SECONDS * 1000,
+  // The health check reads the file's age (sweeper-health-cli.ts), not what it says.
+  onRunSucceeded:
+    heartbeatFile === undefined
+      ? undefined
+      : () => writeFile(heartbeatFile, new Date().toISOString()),
+});
 
 sweeper.start();
 logger.info({ intervalSeconds: config.SWEEP_INTERVAL_SECONDS }, 'sweeper started');
