@@ -298,7 +298,7 @@ The images are built from `api/Dockerfile`, `payments-mock/Dockerfile` and `web/
 
 | Package | Runtime dependencies | Dev dependencies |
 | --- | --- | --- |
-| Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, eslint-plugin-react-hooks, prettier, husky, lint-staged, @types/node |
+| Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, eslint-plugin-react-hooks, prettier, husky, lint-staged, @types/node, @redocly/cli (lints the OpenAPI spec), ajv, ajv-formats and yaml (check the API's answers against it) |
 | `api` | express, helmet, cors, express-rate-limit, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/cors, @types/pg, @types/jsonwebtoken, @types/supertest |
 | `payments-mock` | express, pg, pino, pino-http, zod | tsx, @types/express, @types/pg |
 | `web` | react, react-dom, zod, @fontsource-variable/archivo (the page's typeface, served with it rather than from a font CDN) | vite, @vitejs/plugin-react, @types/react, @types/react-dom, jsdom, @testing-library/react, @testing-library/dom |
@@ -378,8 +378,9 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-WEB-4, FR-SEAT-5 | k6 `seat-poll` | 1,000 fans each load the map once and poll the states every 2 to 3 seconds: p95 under 500 ms and failures under 0.1% |
 | §6.2, §6.3 (the web's API client) | `web/test/client.test.ts`, `api/test/web-client.test.ts` | Every error answer becomes a typed error with its code, status and seats, also through the real API app; anything else becomes a network, timeout or bad-response error; and the typecheck fails if the web's codes and the server's differ |
 | FR-AUTH-1, FR-AUTH-2 (the web page) | `web/test/App.test.tsx`, `web/test/session.test.ts`, `web/test/services.test.ts`, `api/test/auth-rules.test.ts`, `api/test/web-client.test.ts` | The forms refuse what the API refuses, in its words, using the same rules file; sign-up, login and the demo login work against the real routes; the token is kept in `sessionStorage` only; and an expired or refused token sends the fan back to login (ADR 5) |
+| §6.1 to §6.3 (the OpenAPI spec, `docs/openapi.yaml`) | `npm run lint:api`, `api/test/openapi.test.ts` | The spec passes Redocly's `recommended-strict` rules; the API's routes and the spec's operations match one to one; its error codes are the API's; and the real API answers every operation with a documented status, headers and a body that matches its schema, reaching every documented success and `4xx` |
 | NFR-10 | `docker compose up --build` on a fresh clone, with only `JWT_SECRET` set in `.env` | The jobs exit with code 0, every other service turns healthy, and the seat map at http://localhost:8080 shows the seeded stadium; a fan can log in as the demo fan, hold seats and pay |
-| NFR-12 | GitHub Actions, `.github/workflows/ci.yml` | The workflow is green on every push: `test` (format, lint, typecheck, the build, migrate and the test suite), `stack` (the three images built and the stack healthy, then the k6 smoke test passing its thresholds and `npm run audit` exiting with code 0) and `audit` (`npm audit`) |
+| NFR-12 | GitHub Actions, `.github/workflows/ci.yml` | The workflow is green on every push: `test` (format, lint, the OpenAPI lint, typecheck, the build, migrate and the test suite), `stack` (the three images built and the stack healthy, then the k6 smoke test passing its thresholds and `npm run audit` exiting with code 0) and `audit` (`npm audit`) |
 
 ### 9.1 Checkout acceptance cases
 
@@ -463,3 +464,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.34 | 7 Nov 2026 | FR-WEB-6, the plan of the ground and the view from a seat; FR-WEB-1's verification row shows one stand at a time; the web page's typeface in §8.3 |
 | 0.35 | 7 Nov 2026 | Production containers (WP 8.1): the services and images in §8.2, the base images in §8.3, `SWEEPER_HEARTBEAT_FILE` and how Compose passes variables in §8.4, and verification rows for NFR-10 and the stack's seed |
 | 0.36 | 7 Nov 2026 | CI hardening (WP 8.2): the verification row for NFR-12 names the jobs, including the stack built from its images, the k6 smoke test and the audit |
+| 0.37 | 7 Nov 2026 | The OpenAPI spec (WP 8.3): its verification row, its lint in the NFR-12 row, and its tools in §8.3 |

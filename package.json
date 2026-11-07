@@ -15,8 +15,11 @@
   ],
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@redocly/cli": "2.71.0",
     "@types/node": "^26.6.6",
     "@vitest/coverage-v8": "^5.1.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "eslint": "^10.14.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.1.1",
@@ -25,12 +28,14 @@
     "prettier": "^3.9.10",
     "typescript": "6.0.3",
     "typescript-eslint": "^8.72.1",
-    "vitest": "^5.1.0"
+    "vitest": "^5.1.0",
+    "yaml": "^2.9.1"
   },
   "type": "module",
   "scripts": {
     "prepare": "husky",
     "lint": "eslint . --max-warnings=0",
+    "lint:api": "redocly lint",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit && npm run typecheck --workspaces",

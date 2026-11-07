@@ -1,0 +1,11 @@
+# Redocly CLI's settings for docs/openapi.yaml (WP 8.3): npm run lint:api, which CI runs.
+# No usage data goes to Redocly, from a laptop or from CI.
+telemetry: off
+extends:
+  - recommended-strict
+apis:
+  main:
+    root: docs/openapi.yaml
+rules:
+  # The API runs on localhost until WP 8.4 deploys it, so that is the server the spec names.
+  no-server-example.com: off
