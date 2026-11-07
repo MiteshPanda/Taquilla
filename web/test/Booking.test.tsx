@@ -128,6 +128,16 @@ async function click(name: string | RegExp) {
 }
 
 const bar = () => screen.getByRole('region', { name: 'Your seats' });
+// The stub's two halves: which seats, and their price.
+const stub = () => ({
+  seats: bar().querySelector('.stub-seats')?.textContent,
+  figure: bar().querySelector('.stub-figure')?.textContent,
+});
+// One stand's seats are shown at a time; its tab shows another.
+async function showStand(name: string) {
+  fireEvent.click(screen.getByRole('tab', { name: new RegExp(`^${name}`) }));
+  await advance(0);
+}
 const seatButton = (name: string) => screen.getByRole('button', { name });
 const headerOf = (call: Call | undefined, name: string) =>
   new Headers(call?.init.headers).get(name);
@@ -153,7 +163,7 @@ describe('picking seats', () => {
     const picked = seatButton('Fondo Norte, row A, seat 1, selected');
     expect(picked.getAttribute('aria-pressed')).toBe('true');
     expect(picked.classList.contains('seat-selected')).toBe(true);
-    expect(bar().textContent).toContain('1 seat selected: A-1 in Fondo Norte · ₹2,500');
+    expect(stub()).toEqual({ seats: '1 seat selected: A-1 in Fondo Norte', figure: '₹2,500' });
     expect(seatButton('Fondo Norte, row A, seat 2, available').getAttribute('aria-pressed')).toBe(
       'false',
     );
@@ -167,15 +177,18 @@ describe('picking seats', () => {
     await advance(0);
     for (const n of [1, 2, 3]) await click(`Fondo Norte, row A, seat ${n}, available`);
     for (const n of [1, 2, 3]) await click(`Fondo Norte, row B, seat ${n}, available`);
+    await showStand('Fondo Sur');
 
     await click('Fondo Sur, row A, seat 1, available');
 
     expect(screen.getByText(FULL).getAttribute('role')).toBe('status');
     expect(seatButton('Fondo Sur, row A, seat 1, available')).toBeTruthy();
-    expect(bar().textContent).toContain(
-      '6 seats selected: A-1, A-2, A-3, B-1, B-2 and B-3 in Fondo Norte · ₹15,000',
-    );
+    expect(stub()).toEqual({
+      seats: '6 seats selected: A-1, A-2, A-3, B-1, B-2 and B-3 in Fondo Norte',
+      figure: '₹15,000',
+    });
 
+    await showStand('Fondo Norte');
     await click('Fondo Norte, row B, seat 3, selected');
     expect(screen.queryByText(FULL)).toBeNull();
   });
@@ -191,6 +204,7 @@ describe('picking seats', () => {
     await advance(POLL_MIN_MS);
     expect(bar().textContent).toContain('5 seats selected');
 
+    await showStand('Fondo Sur');
     await click('Fondo Sur, row A, seat 1, available');
     expect(screen.queryByText(FULL)).toBeNull();
     expect(bar().textContent).toContain('6 seats selected');
@@ -232,7 +246,10 @@ describe('holding seats', () => {
     expect(bodyOf(holdCalls()[0])).toEqual({ seatIds: [2, 1] });
     expect(headerOf(holdCalls()[0], 'Idempotency-Key')).toBe('key-1');
     expect(headerOf(holdCalls()[0], 'Authorization')).toBe(`Bearer ${TOKEN}`);
-    expect(bar().textContent).toContain("You're holding A-2 and A-1 in Fondo Norte · ₹5,000");
+    expect(stub()).toEqual({
+      seats: "You're holding A-2 and A-1 in Fondo Norte",
+      figure: '₹5,000',
+    });
     expect(screen.getByRole('timer').textContent).toBe('5:01');
     // The map is asked at once, rather than at the next poll, and shows the seats as the fan's.
     expect(pollCalls()).toBe(pollsBefore + 1);
@@ -359,6 +376,7 @@ describe('a seat someone just took (FR-WEB-5)', () => {
     setup({ hold: taken([2, 8]) });
     await advance(0);
     await click('Fondo Norte, row A, seat 2, available');
+    await showStand('Fondo Sur');
     await click('Fondo Sur, row A, seat 2, available');
 
     await click('Hold 2 seats');
@@ -558,8 +576,8 @@ describe('paying (FR-WEB-3)', () => {
     expect(screen.getByRole('status').textContent).toBe(PAID);
     const tickets = [...document.querySelectorAll('.tickets li')].map((item) => item.textContent);
     expect(tickets).toEqual([
-      'Fondo Norte, row A, seat 1 · ₹2,500',
-      'Fondo Norte, row A, seat 2 · ₹2,500',
+      'Fondo Norte Row A, seat 1 ₹2,500',
+      'Fondo Norte Row A, seat 2 ₹2,500',
     ]);
     expect(bar().textContent).toContain(`Order ${ORDER_ID}`);
     expect(pollCalls()).toBe(pollsBefore + 1);

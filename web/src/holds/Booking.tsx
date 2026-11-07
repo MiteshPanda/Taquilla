@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import type { ApiClient, Hold, Seat } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
 import type { PayOptions } from '../checkout/pay.js';
@@ -56,6 +57,9 @@ export interface BookingProps {
   newKey?: () => string;
   // Waits between payment tries while the first is still running; tests pass their own.
   wait?: PayOptions['wait'];
+  // Shown under the match's name, such as the login form, and at the foot of the page.
+  intro?: ReactNode;
+  footer?: ReactNode;
 }
 
 // The seat map and what the fan does with it: pick up to 6 seats, hold them, watch the hold count
@@ -66,6 +70,8 @@ export function Booking({
   random,
   newKey = () => crypto.randomUUID(),
   wait,
+  intro,
+  footer,
 }: BookingProps) {
   const { map, refresh } = useSeatMap(api, EVENT_ID, random);
   const [selection, dispatch] = useReducer(selectionReducer, EMPTY_SELECTION);
@@ -144,14 +150,14 @@ export function Booking({
   }
 
   return (
-    <div className="booking">
-      <SeatMap
-        map={map}
-        mine={mine}
-        selected={selected}
-        // One hold at a time: seats can't be picked while one is running.
-        onToggleSeat={hold === null ? toggleSeat : undefined}
-      />
+    <SeatMap
+      map={map}
+      mine={mine}
+      selected={selected}
+      // One hold at a time: seats can't be picked while one is running.
+      onToggleSeat={hold === null ? toggleSeat : undefined}
+      intro={intro}
+    >
       <section className="hold-bar" aria-label="Your seats">
         {notice !== null && (
           <p className={`hold-notice hold-notice-${notice.role}`} role={notice.role}>
@@ -172,14 +178,16 @@ export function Booking({
           />
         ) : picked.length > 0 ? (
           <>
-            <p>
-              {plural(picked.length, 'seat', 'seats')} selected: {describeSeats(pickedSeats)} ·{' '}
-              {formatPrice(pickedTotal)}
-            </p>
+            <div className="stub-line">
+              <p className="stub-seats">
+                {plural(picked.length, 'seat', 'seats')} selected: {describeSeats(pickedSeats)}
+              </p>
+              <p className="stub-figure">{formatPrice(pickedTotal)}</p>
+            </div>
             {selection.full && <p role="status">{FULL}</p>}
             <div className="actions">
               {token === null ? (
-                <p>Log in to hold them.</p>
+                <p className="stub-login">Log in to hold them.</p>
               ) : (
                 <button type="button" onClick={() => void holdPicked()} disabled={pending}>
                   {pending ? 'Holding…' : `Hold ${plural(picked.length, 'seat', 'seats')}`}
@@ -196,9 +204,10 @@ export function Booking({
             </div>
           </>
         ) : (
-          <p>Pick up to {MAX_HOLD_SEATS} seats on the map.</p>
+          <p className="stub-empty">Pick up to {MAX_HOLD_SEATS} seats on the map.</p>
         )}
       </section>
-    </div>
+      {footer}
+    </SeatMap>
   );
 }

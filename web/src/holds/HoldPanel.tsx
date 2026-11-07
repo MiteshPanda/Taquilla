@@ -170,9 +170,12 @@ export function HoldPanel({
         </p>
         <ul className="tickets">
           {order.tickets.map((ticket) => (
-            <li key={ticket.id}>
-              {ticket.section}, row {ticket.row}, seat {ticket.number} ·{' '}
-              {formatPrice(ticket.pricePaise)}
+            <li key={ticket.id} className="ticket">
+              <span className="ticket-stand">{ticket.section}</span>{' '}
+              <span className="ticket-seat">
+                Row {ticket.row}, seat {ticket.number}
+              </span>{' '}
+              <span className="ticket-price">{formatPrice(ticket.pricePaise)}</span>
             </li>
           ))}
         </ul>
@@ -193,11 +196,14 @@ export function HoldPanel({
           {notice.text}
         </p>
       )}
-      <p>
-        You're holding {describeSeats(seats)} · {formatPrice(hold.amountPaise)}
-      </p>
+      <div className="stub-line">
+        <p className="stub-seats">You're holding {describeSeats(seats)}</p>
+        <p className="stub-figure">{formatPrice(hold.amountPaise)}</p>
+      </div>
       {step === 'paying' ? (
-        <p role="status">{PAYING}</p>
+        <p className="paying" role="status">
+          {PAYING}
+        </p>
       ) : (
         <Countdown expiresAt={expiresAt} onExpire={onExpire} />
       )}
@@ -217,7 +223,7 @@ export function HoldPanel({
         </div>
       ) : (
         <div className="payment" role="group" aria-label="Payment">
-          <p>{TEST_PAYMENT}</p>
+          <p className="test-payment">{TEST_PAYMENT}</p>
           <div className="actions">
             <button type="button" onClick={() => void pay()} disabled={step === 'paying'}>
               {step === 'paying' ? 'Paying…' : `Pay ${formatPrice(hold.amountPaise)}`}

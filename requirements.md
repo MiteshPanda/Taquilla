@@ -154,6 +154,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | FR-WEB-3 | The page MUST create one `Idempotency-Key` per payment attempt, reuse it on retries (including after `409 REQUEST_IN_PROGRESS` and `503`), and create a new one only after a decline. |
 | FR-WEB-4 | The seat map SHOULD refresh every 2–3 seconds. |
 | FR-WEB-5 | A `409` MUST be shown as a friendly message naming the seat, not as a raw error. |
+| FR-WEB-6 | The page SHOULD show a plan of the ground with every seat in its state, raise the fan's picked and held seats on it, and show the view from the seat pointed at or picked last. |
 
 ### 4.10 Developer tooling
 
@@ -293,7 +294,7 @@ Every error response MUST use this shape. `seatIds` appears only when specific s
 | Root (shared by every package) | None | typescript, vitest, @vitest/coverage-v8, eslint, @eslint/js, typescript-eslint, eslint-config-prettier, eslint-plugin-react-hooks, prettier, husky, lint-staged, @types/node |
 | `api` | express, helmet, cors, express-rate-limit, pg, zod, jsonwebtoken, bcryptjs, pino, pino-http | tsx, supertest, @types/express, @types/cors, @types/pg, @types/jsonwebtoken, @types/supertest |
 | `payments-mock` | express, pg, pino, pino-http, zod | tsx, @types/express, @types/pg |
-| `web` | react, react-dom, zod | vite, @vitejs/plugin-react, @types/react, @types/react-dom, jsdom, @testing-library/react, @testing-library/dom |
+| `web` | react, react-dom, zod, @fontsource-variable/archivo (the page's typeface, served with it rather than from a font CDN) | vite, @vitejs/plugin-react, @types/react, @types/react-dom, jsdom, @testing-library/react, @testing-library/dom |
 | `loadtest` | k6, a standalone binary rather than an npm package | None |
 
 Install the current stable versions and commit `package-lock.json`, so every install is reproducible. TypeScript stays on 6.0 until typescript-eslint supports a newer major version.
@@ -333,7 +334,8 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | FR-AUTH-1, FR-AUTH-2, FR-AUTH-4, FR-AUTH-5 | `api/test/auth.test.ts` | Sign-up, login, every bad-token case and the rate limit behave as specified |
 | FR-SEAT-1 to FR-SEAT-3 | `api/test/seats.test.ts` | 2,000 seats in order, a lapsed hold reads `available`, and a locked seat doesn't delay the map |
 | FR-SEAT-5 | `api/test/seats.test.ts` | Live holds and sales are listed in id order and a lapsed hold isn't; the answer agrees with the full map on every seat, stays under 10 KB with every seat sold, doesn't wait for a locked seat, and gives `404` for an unknown event |
-| FR-WEB-1, FR-WEB-4 | `web/test/SeatMap.test.tsx`, `web/test/seats.test.ts` | One grid per stand of buttons named like "Fondo Sur, row F, seat 12, available"; the four states differ in class and words as well as colour; one tab stop per stand with arrow-key movement; states polled every 2 to 3 seconds, paused while the tab is hidden |
+| FR-WEB-1, FR-WEB-4 | `web/test/SeatMap.test.tsx`, `web/test/seats.test.ts` | One tab per stand with its price and seats left, showing that stand as a grid of buttons named like "Fondo Sur, row F, seat 12, available"; the four states differ in class and words as well as colour; one tab stop in the grid with arrow-key movement, and arrow keys between the tabs; states polled every 2 to 3 seconds, paused while the tab is hidden |
+| FR-WEB-6 | `web/test/SeatMap.test.tsx`, `web/test/stadium.test.ts` | The plan draws all 2,000 seats in their stands, with seat 1 on a fan's left and each row above and behind the one in front; every point of a stand finds its seat and the pitch finds none; picked and held seats are raised; the view shows the seat focused, hovered or pointed at on the plan, else the newest pick, else the first seat held, named and placed in words; a mouse click on a free seat on the plan picks it and a tap only shows its stand; the view draws the pitch, the other stands with their crowd, holds and picks, and the rows in front, cut at the camera rather than flipped |
 | FR-DEV-4 | `api/test/tokens.test.ts` | 1,000 tokens are written, one per seeded fan, and each one authenticates; production and remote hosts are refused |
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats, 1,000 fans and no charges, and refuses production or a remote host |
 | FR-HOLD-1 to FR-HOLD-3 | `api/test/holds.test.ts` | Free, taken, sold, lapsed and unknown seats give the specified result under each strategy |
@@ -444,3 +446,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.31 | 7 Nov 2026 | FR-SEAT-5, the seat states a page polls; the `seat-poll` scenario in FR-DEV-5; verification rows for FR-SEAT-5, FR-WEB-1 and FR-WEB-4 |
 | 0.32 | 7 Nov 2026 | The verification row for the hold flow, FR-WEB-2 and FR-WEB-5 |
 | 0.33 | 7 Nov 2026 | The verification row for the payment step, FR-WEB-3 |
+| 0.34 | 7 Nov 2026 | FR-WEB-6, the plan of the ground and the view from a seat; FR-WEB-1's verification row shows one stand at a time; the web page's typeface in §8.3 |
