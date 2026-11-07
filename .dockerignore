@@ -12,6 +12,7 @@
 !api/tsconfig.build.json
 !api/src/
 !api/migrations/
+!api/bin/
 
 !payments-mock/package.json
 !payments-mock/tsconfig.json

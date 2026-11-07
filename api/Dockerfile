@@ -40,6 +40,7 @@ WORKDIR /app
 # node_modules sits at the root and in api/, where npm put a version another package doesn't share.
 COPY --from=deps /app /app
 COPY api/migrations api/migrations
+COPY api/bin api/bin
 COPY --from=build /app/api/dist api/dist
 COPY payments-mock/migrations payments-mock/migrations
 COPY --from=build /app/payments-mock/dist payments-mock/dist
