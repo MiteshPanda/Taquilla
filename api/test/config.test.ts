@@ -27,7 +27,25 @@ describe('parseConfig', () => {
       PAYMENTS_URL: 'http://localhost:4000',
       SEED_PASSWORD: 'taquilla-dev',
       RACE_DELAY_MS: 0,
+      SWEEPER_IN_PROCESS: false,
+      PAYMENTS_IN_PROCESS: false,
+      TRUST_PROXY: 0,
     });
+  });
+
+  it.each(['SWEEPER_IN_PROCESS', 'PAYMENTS_IN_PROCESS'] as const)(
+    'reads %s as a true or false flag, and refuses anything else',
+    (name) => {
+      expect(parseConfig({ JWT_SECRET, [name]: 'true' })[name]).toBe(true);
+      expect(parseConfig({ JWT_SECRET, [name]: 'false' })[name]).toBe(false);
+      expect(() => parseConfig({ JWT_SECRET, [name]: 'sometimes' })).toThrow(name);
+    },
+  );
+
+  it('reads TRUST_PROXY as a number of proxies, and refuses a negative one', () => {
+    expect(parseConfig({ JWT_SECRET, TRUST_PROXY: '1' }).TRUST_PROXY).toBe(1);
+    expect(() => parseConfig({ JWT_SECRET, TRUST_PROXY: '-1' })).toThrow(/TRUST_PROXY/);
+    expect(() => parseConfig({ JWT_SECRET, TRUST_PROXY: 'true' })).toThrow(/TRUST_PROXY/);
   });
 
   it.each([

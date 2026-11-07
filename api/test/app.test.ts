@@ -290,6 +290,34 @@ describe('logging', () => {
   });
 });
 
+describe('the client address behind a proxy (WP 8.4)', () => {
+  const whoAmI = Router();
+  whoAmI.get('/ip', (req, res) => {
+    res.json({ ip: req.ip });
+  });
+  const ipFor = async (trustProxy: number | undefined, forwardedFor?: string) => {
+    const app = createApp({
+      config: { CORS_ORIGINS: [], TRUST_PROXY: trustProxy },
+      logger: createLogger('silent'),
+      routes: whoAmI,
+    });
+    let req = request(app).get('/ip');
+    if (forwardedFor !== undefined) req = req.set('X-Forwarded-For', forwardedFor);
+    return ((await req).body as { ip: string }).ip;
+  };
+
+  it('ignores X-Forwarded-For unless told to trust a proxy, so it cannot be faked', async () => {
+    expect(await ipFor(undefined, '203.0.113.7')).toMatch(/127.0.0.1|::1/);
+    expect(await ipFor(0, '203.0.113.7')).toMatch(/127.0.0.1|::1/);
+  });
+
+  it('takes the address the trusted proxy saw, not one the client wrote before it', async () => {
+    expect(await ipFor(1, '203.0.113.7')).toBe('203.0.113.7');
+    // The client sent 198.51.100.1 itself; the host's proxy appended the real address.
+    expect(await ipFor(1, '198.51.100.1, 203.0.113.7')).toBe('203.0.113.7');
+  });
+});
+
 describe('security headers and CORS', () => {
   it('sets helmet headers and hides Express', async () => {
     const res = await request(buildApp()).get('/ok');

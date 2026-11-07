@@ -1,0 +1,39 @@
+# The hosted demo's API on Render (WP 8.4), as a Blueprint: in Render, New > Blueprint, then this
+# repository. docs/deploy.md has every step.
+#
+# One free web service runs the API, the payment mock and the sweeper in one process, because a
+# free service sleeps when idle, and a sleeping provider would time out the API's charges.
+# Secrets live only in Render: it makes JWT_SECRET itself, and asks for the database address and
+# the page's address when the Blueprint is created.
+services:
+  - type: web
+    name: taquilla-api
+    runtime: docker
+    plan: free
+    # Near the database: pick the Neon region closest to this one.
+    region: singapore
+    dockerfilePath: ./api/Dockerfile
+    dockerContext: .
+    # Migrates and seeds an empty database on every start, which is cheap once done, then serves.
+    dockerCommand: >-
+      sh -c "node dist/migrate-cli.js && node dist/seed-cli.js
+      && exec node --enable-source-maps dist/server.js"
+    healthCheckPath: /ready
+    envVars:
+      # Neon's direct connection string, not the pooled one: migrations take session locks.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      # The page's address on Vercel, such as https://taquilla.vercel.app.
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PAYMENTS_IN_PROCESS
+        value: 'true'
+      - key: SWEEPER_IN_PROCESS
+        value: 'true'
+      # Render's proxy stands in front of the service, so the fan's address is the one it saw.
+      - key: TRUST_PROXY
+        value: '1'
+      - key: LOG_LEVEL
+        value: info
