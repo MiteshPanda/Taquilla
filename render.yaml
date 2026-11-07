@@ -15,9 +15,8 @@ services:
     dockerfilePath: ./api/Dockerfile
     dockerContext: .
     # Migrates and seeds an empty database on every start, which is cheap once done, then serves.
-    dockerCommand: >-
-      sh -c "node dist/migrate-cli.js && node dist/seed-cli.js
-      && exec node --enable-source-maps dist/server.js"
+    # Render splits this on spaces and runs it without a shell, so it has no quotes or &&.
+    dockerCommand: sh bin/start-demo.sh
     healthCheckPath: /ready
     envVars:
       # Neon's direct connection string, not the pooled one: migrations take session locks.
