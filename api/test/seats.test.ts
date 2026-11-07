@@ -9,7 +9,7 @@ import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { createSeatsRouter } from '../src/seats/routes.js';
 import { SEAT_MAP_QUERY } from '../src/seats/service.js';
-import type { Seat, SeatMap } from '../src/seats/service.js';
+import type { Seat, SeatMap, SeatStates } from '../src/seats/service.js';
 import { schemaConnectionString } from './helpers/database.js';
 
 const SCHEMA = 'seats_probe';
@@ -27,6 +27,11 @@ const app = () =>
 async function seatMap(eventId: number | string = 1): Promise<SeatMap> {
   const res = await request(app()).get(`/events/${eventId}/seats`).expect(200);
   return res.body as SeatMap;
+}
+
+async function seatStates(eventId: number | string = 1): Promise<SeatStates> {
+  const res = await request(app()).get(`/events/${eventId}/seats/states`).expect(200);
+  return res.body as SeatStates;
 }
 
 async function stateOf(seatId: number): Promise<Seat['state'] | undefined> {
@@ -194,6 +199,110 @@ describe('GET /events/:id/seats', () => {
     'answers 404 for the id %s, which no event can have',
     async (id) => {
       await request(app()).get(`/events/${id}/seats`).expect(404, UNKNOWN_EVENT);
+    },
+  );
+});
+
+describe('GET /events/:id/seats/states', () => {
+  it('lists nothing on a fresh stadium, and tells browsers and proxies not to store it', async () => {
+    const res = await request(app()).get('/events/1/seats/states').expect(200);
+
+    expect(res.body).toEqual({ held: [], sold: [] });
+    expect(res.headers['cache-control']).toBe('no-store');
+  });
+
+  it('lists live holds and sales by seat id, in order, and leaves out a lapsed hold', async () => {
+    await holdSeat(SEAT_42, '5 minutes');
+    await holdSeat(7, '5 minutes');
+    await holdSeat(100, '-1 second');
+    await db.pool.query(`UPDATE seats SET status = 'sold' WHERE id = ANY($1)`, [[1500, 3]]);
+
+    expect(await seatStates()).toEqual({ held: [7, SEAT_42], sold: [3, 1500] });
+  });
+
+  it('lists ids in id order, however the rows are stored or indexed', async () => {
+    await db.pool.query(`UPDATE seats SET status = 'sold' WHERE id = ANY($1)`, [[1500, 3]]);
+    await holdSeat(1600, '5 minutes');
+    await holdSeat(5, '5 minutes');
+    // Rewrite the table in (section, row, seat) order, the order of that index too. The Fondo
+    // stands' seats 1001 to 2000 then come before Lateral Este's 1 to 500, both on disk and in
+    // the index, so only the query's own ORDER BY id lists seat 3 before 1500, and 5 before 1600.
+    await db.pool.query('CLUSTER seats USING seats_event_id_section_row_label_seat_no_key');
+
+    expect(await seatStates()).toEqual({ held: [5, 1600], sold: [3, 1500] });
+  });
+
+  it('agrees with the full map on every seat', async () => {
+    // A mix across all four stands: live holds, lapsed holds and sales.
+    await db.pool.query(
+      `UPDATE seats SET status = 'held', hold_id = $1,
+              held_until = now() + CASE WHEN id % 2 = 0 THEN interval '5 minutes'
+                                        ELSE interval '-1 second' END
+        WHERE id % 7 = 0`,
+      [holdId],
+    );
+    await db.pool.query(`UPDATE seats SET status = 'sold' WHERE id % 11 = 0 AND id % 7 <> 0`);
+
+    const { seats } = await seatMap();
+    const idsIn = (state: Seat['state']) =>
+      seats
+        .filter((seat) => seat.state === state)
+        .map((seat) => seat.id)
+        .sort((a, b) => a - b);
+    const states = await seatStates();
+
+    expect(states).toEqual({ held: idsIn('held'), sold: idsIn('sold') });
+    expect(states.held.length).toBeGreaterThan(100);
+    expect(states.sold.length).toBeGreaterThan(100);
+  });
+
+  it('stays under 10 KB even when every seat is sold, against the full map’s 200 KB', async () => {
+    await db.pool.query(`UPDATE seats SET status = 'sold'`);
+
+    const states = await request(app()).get('/events/1/seats/states').expect(200);
+    const map = await request(app()).get('/events/1/seats').expect(200);
+
+    expect((states.body as SeatStates).sold).toHaveLength(2_000);
+    expect(states.text.length).toBeLessThan(10_000);
+    expect(map.text.length).toBeGreaterThan(150_000);
+  });
+
+  it('answers without waiting while a booking has a seat locked', async () => {
+    const booking = new Client({ connectionString: CONNECTION_STRING });
+    await booking.connect();
+    try {
+      await booking.query('BEGIN');
+      await booking.query('SELECT 1 FROM seats WHERE id = $1 FOR UPDATE', [SEAT_42]);
+      await booking.query(`UPDATE seats SET status = 'sold' WHERE id = $1`, [SEAT_42]);
+
+      const startedAt = performance.now();
+      const states = await seatStates();
+
+      expect(performance.now() - startedAt).toBeLessThan(1_000);
+      // The booking hasn't committed, so the seat is still available.
+      expect(states).toEqual({ held: [], sold: [] });
+    } finally {
+      await booking.query('ROLLBACK');
+      await booking.end();
+    }
+  });
+
+  it('lists only the seats of the event asked for', async () => {
+    await db.pool.query(`UPDATE seats SET status = 'sold' WHERE id = $1`, [SEAT_42]);
+    const { rows } = await db.pool.query<{ id: number }>(
+      `INSERT INTO events (name, starts_at) VALUES ('Friendly', now()) RETURNING id`,
+    );
+    const otherEventId = rows[0]?.id ?? 0;
+
+    expect(await seatStates(otherEventId)).toEqual({ held: [], sold: [] });
+    expect(await seatStates()).toEqual({ held: [], sold: [SEAT_42] });
+    await db.pool.query('DELETE FROM events WHERE id = $1', [otherEventId]);
+  });
+
+  it.each(['999', '2147483647', 'abc', '0', '-1', '1.5', '01', '2147483648'])(
+    'answers 404 for the event id %s',
+    async (id) => {
+      await request(app()).get(`/events/${id}/seats/states`).expect(404, UNKNOWN_EVENT);
     },
   );
 });

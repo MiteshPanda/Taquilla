@@ -124,3 +124,149 @@ button.link {
 button:disabled {
   cursor: progress;
 }
+
+/* Seats: each state differs in pattern or symbol as well as colour (FR-WEB-1), so it reads in
+   greyscale, to colour-blind fans, and in forced-colours mode, where backgrounds are dropped. */
+:root {
+  --seat-available: light-dark(#13702f, #5fd17d);
+  --seat-held: light-dark(#a15c00, #f0b45a);
+  --seat-yours: light-dark(#1d4ed8, #7aa2ff);
+  --seat-sold: light-dark(#5b5b5b, #8f8f8f);
+}
+
+.seat-map h2 {
+  margin-bottom: 0;
+}
+
+.kick-off {
+  margin-top: 0.25rem;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1.25rem;
+  padding: 0;
+  list-style: none;
+}
+
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.seat {
+  box-sizing: border-box;
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  padding: 0;
+  border: 2px solid var(--seat-available);
+  border-radius: 0.45rem 0.45rem 0.2rem 0.2rem;
+  background: none;
+  font:
+    700 1rem/1 system-ui,
+    sans-serif;
+  color: Canvas;
+  cursor: pointer;
+}
+
+.legend .seat {
+  width: 1.25rem;
+  height: 1.25rem;
+  font-size: 0.75rem;
+  cursor: default;
+}
+
+.seat-available:hover {
+  background: color-mix(in srgb, var(--seat-available) 25%, transparent);
+}
+
+/* Someone else's hold: stripes and a dashed edge, which survives forced colours. */
+.seat-held {
+  border-style: dashed;
+  border-color: var(--seat-held);
+  background: repeating-linear-gradient(45deg, var(--seat-held) 0 2px, transparent 2px 6px);
+  cursor: not-allowed;
+}
+
+.seat-yours {
+  border-color: var(--seat-yours);
+  background: var(--seat-yours);
+}
+
+.seat-yours::after {
+  content: '✓';
+}
+
+.seat-sold {
+  border-color: var(--seat-sold);
+  background: var(--seat-sold);
+  cursor: not-allowed;
+}
+
+.seat-sold::after {
+  content: '×';
+}
+
+.seat:focus-visible {
+  outline: 3px solid Highlight;
+  outline-offset: 2px;
+}
+
+@media (forced-colors: active) {
+  .seat-yours::after,
+  .seat-sold::after {
+    color: CanvasText;
+  }
+}
+
+.stand h3 {
+  margin-bottom: 0;
+}
+
+.stand-summary {
+  margin-top: 0.25rem;
+  color: GrayText;
+}
+
+/* A stand is 25 seats wide; on a phone it scrolls sideways inside its own box, not the page. */
+.stand-scroll {
+  overflow-x: auto;
+  padding: 0.25rem 0.25rem 0.5rem 0;
+}
+
+.stand-grid {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.seat-row {
+  display: flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.seat-row > [role='gridcell'] {
+  display: flex;
+}
+
+.row-label {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  width: 1.5rem;
+  background: Canvas;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.refresh-error {
+  padding: 0.5rem 0.75rem;
+  border-left: 4px solid var(--seat-held);
+}

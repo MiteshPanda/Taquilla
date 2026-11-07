@@ -1,9 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { createApiClient, HEALTH_TIMEOUT_MS, REQUEST_TIMEOUT_MS } from '../src/api/client.js';
+import {
+  createApiClient,
+  HEALTH_TIMEOUT_MS,
+  REQUEST_TIMEOUT_MS,
+  SEAT_READ_TIMEOUT_MS,
+} from '../src/api/client.js';
 import { ApiError, SERVER_ERROR_CODES } from '../src/api/errors.js';
 import type { Call } from './helpers.js';
-import { bodyOf, fakeFetch, json } from './helpers.js';
+import { bodyOf, fakeFetch, json, stadium } from './helpers.js';
 
 const BASE_URL = 'http://api.test/v1';
 
@@ -365,5 +370,68 @@ describe('a refused token', () => {
       code: 'NOT_FOUND',
     });
     expect(onUnauthorized).not.toHaveBeenCalled();
+  });
+});
+
+describe('the seat reads', () => {
+  it('GETs the full map and parses every seat', async () => {
+    const map = stadium({ rows: 1, seatsPerRow: 2 });
+    const { calls, fetch } = fakeFetch(() => json(200, map));
+
+    await expect(createApiClient({ baseUrl: BASE_URL, fetch }).seatMap(1)).resolves.toEqual(map);
+    expect(calls[0]?.url).toBe('http://api.test/v1/events/1/seats');
+  });
+
+  it('GETs the seat states', async () => {
+    const { calls, fetch } = fakeFetch(() => json(200, { held: [2], sold: [7, 8] }));
+
+    await expect(createApiClient({ baseUrl: BASE_URL, fetch }).seatStates(1)).resolves.toEqual({
+      held: [2],
+      sold: [7, 8],
+    });
+    expect(calls[0]?.url).toBe('http://api.test/v1/events/1/seats/states');
+  });
+
+  it.each([
+    [
+      'a seat in an unknown state',
+      {
+        ...stadium({ rows: 1, seatsPerRow: 1 }),
+        seats: [{ ...stadium({ rows: 1, seatsPerRow: 1 }).seats[0], state: 'reserved' }],
+      },
+    ],
+    [
+      'a price that is not whole paise',
+      {
+        ...stadium({ rows: 1, seatsPerRow: 1 }),
+        seats: [{ ...stadium({ rows: 1, seatsPerRow: 1 }).seats[0], pricePaise: 4500.5 }],
+      },
+    ],
+    ['no seats list', { event: stadium().event }],
+  ])('refuses a map with %s', async (_case, body) => {
+    const { fetch } = fakeFetch(() => json(200, body));
+
+    await expect(createApiClient({ baseUrl: BASE_URL, fetch }).seatMap(1)).rejects.toMatchObject({
+      code: 'BAD_RESPONSE',
+    });
+  });
+
+  it('gives each seat read 10 seconds, well before a stuck one would delay the next poll', async () => {
+    const timeout = vi.spyOn(AbortSignal, 'timeout');
+    const { fetch } = fakeFetch((call) =>
+      json(
+        200,
+        call.url.endsWith('/states')
+          ? { held: [], sold: [] }
+          : stadium({ rows: 1, seatsPerRow: 1 }),
+      ),
+    );
+    const api = createApiClient({ baseUrl: BASE_URL, fetch });
+
+    await api.seatMap(1);
+    await api.seatStates(1);
+
+    expect(SEAT_READ_TIMEOUT_MS).toBe(10_000);
+    expect(timeout.mock.calls).toEqual([[10_000], [10_000]]);
   });
 });

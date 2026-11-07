@@ -74,6 +74,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | FR-SEAT-2 | A seat whose hold has expired MUST be reported as `available`, even before the sweeper runs. |
 | FR-SEAT-3 | Reading the seat map MUST NOT take row locks or block bookings. |
 | FR-SEAT-4 | The seed MUST create one event and 2,000 seats in four stands (Lateral Este, Lateral Oeste, Fondo Norte, Fondo Sur; 20 rows × 25 seats each), plus 1,000 test fans (`fan1@taquilla.test` to `fan1000@taquilla.test`, password from `SEED_PASSWORD`). |
+| FR-SEAT-5 | `GET /events/:id/seats/states` MUST be public and return `{ held, sold }`, the ids of the event's held and sold seats in id order, by the same rules as FR-SEAT-1 to FR-SEAT-3, with `Cache-Control: no-store`. A page polls it after loading the full map once, since names and prices never change. |
 
 ### 4.3 Seat holds
 
@@ -162,7 +163,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | FR-DEV-2 | `RACE_DELAY_MS` (default 0) MUST widen the naive race window. |
 | FR-DEV-3 | `npm run reset` MUST migrate and seed a clean stadium with no charges left in the `payments` schema, and MUST refuse to run when `NODE_ENV=production` or the database host isn't local. |
 | FR-DEV-4 | `npm run tokens` MUST write JWTs for the 1,000 test fans to `loadtest/tokens.json`, which MUST be gitignored, and MUST refuse to run when `NODE_ENV=production` or the database host isn't local. |
-| FR-DEV-5 | The repo MUST include the k6 scenarios `hot-seat`, `sellout`, `double-click` and `churn`. |
+| FR-DEV-5 | The repo MUST include the k6 scenarios `hot-seat`, `sellout`, `double-click`, `churn` and `seat-poll`. |
 
 ## 5. Non-functional requirements
 
@@ -195,6 +196,7 @@ These MUST hold at all times, under any load. Each one has its own audit check (
 | `POST` | `/auth/signup` | None | No | `201` with `{ id, email }` | `400`, `409`, `429` |
 | `POST` | `/auth/login` | None | No | `200` with `{ token }` | `400`, `401`, `429` |
 | `GET` | `/events/:id/seats` | None | No | `200` | `404` |
+| `GET` | `/events/:id/seats/states` | None | No | `200` with `{ held, sold }` | `404` |
 | `POST` | `/events/:id/holds` | JWT | Optional | `201` | `400`, `401`, `404`, `409`, `422` |
 | `DELETE` | `/holds/:id` | JWT | No | `204` | `401`, `404` |
 | `POST` | `/holds/:id/checkout` | JWT | Required | `200` with the paid order, as `GET /orders/:id` shows it | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
@@ -330,6 +332,8 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | DR-2 to DR-8, DR-10 to DR-12 | `api/test/schema.test.ts` | Postgres rejects every state these rules forbid |
 | FR-AUTH-1, FR-AUTH-2, FR-AUTH-4, FR-AUTH-5 | `api/test/auth.test.ts` | Sign-up, login, every bad-token case and the rate limit behave as specified |
 | FR-SEAT-1 to FR-SEAT-3 | `api/test/seats.test.ts` | 2,000 seats in order, a lapsed hold reads `available`, and a locked seat doesn't delay the map |
+| FR-SEAT-5 | `api/test/seats.test.ts` | Live holds and sales are listed in id order and a lapsed hold isn't; the answer agrees with the full map on every seat, stays under 10 KB with every seat sold, doesn't wait for a locked seat, and gives `404` for an unknown event |
+| FR-WEB-1, FR-WEB-4 | `web/test/SeatMap.test.tsx`, `web/test/seats.test.ts` | One grid per stand of buttons named like "Fondo Sur, row F, seat 12, available"; the four states differ in class and words as well as colour; one tab stop per stand with arrow-key movement; states polled every 2 to 3 seconds, paused while the tab is hidden |
 | FR-DEV-4 | `api/test/tokens.test.ts` | 1,000 tokens are written, one per seeded fan, and each one authenticates; production and remote hosts are refused |
 | FR-SEAT-4, FR-DEV-3 | `api/test/reset.test.ts` | A reset leaves 2,000 seats, 1,000 fans and no charges, and refuses production or a remote host |
 | FR-HOLD-1 to FR-HOLD-3 | `api/test/holds.test.ts` | Free, taken, sold, lapsed and unknown seats give the specified result under each strategy |
@@ -354,6 +358,7 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | NFR-2 to NFR-4 | k6 `hot-seat` thresholds | `holds_won` count is 1, p95 is under 2,500 ms, failures are under 0.1% |
 | INV-2 | k6 `double-click`, then the audit | Both clicks end with the same answer, and no order has two successful charges |
 | FR-EXP-2, INV-4 | k6 `churn` with `HOLD_SECONDS=10`, then the audit | Every seat sold was an expired hold resold, and the audit exits with code 0 right after and 45 seconds later |
+| FR-WEB-4, FR-SEAT-5 | k6 `seat-poll` | 1,000 fans each load the map once and poll the states every 2 to 3 seconds: p95 under 500 ms and failures under 0.1% |
 | §6.2, §6.3 (the web's API client) | `web/test/client.test.ts`, `api/test/web-client.test.ts` | Every error answer becomes a typed error with its code, status and seats, also through the real API app; anything else becomes a network, timeout or bad-response error; and the typecheck fails if the web's codes and the server's differ |
 | FR-AUTH-1, FR-AUTH-2 (the web page) | `web/test/App.test.tsx`, `web/test/session.test.ts`, `web/test/services.test.ts`, `api/test/auth-rules.test.ts`, `api/test/web-client.test.ts` | The forms refuse what the API refuses, in its words, using the same rules file; sign-up, login and the demo login work against the real routes; the token is kept in `sessionStorage` only; and an expired or refused token sends the fan back to login (ADR 5) |
 | NFR-12 | GitHub Actions | The workflow is green on every push |
@@ -434,3 +439,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.28 | 7 Nov 2026 | NFR-3: the measured hot-seat latency per strategy and what limits it |
 | 0.29 | 7 Nov 2026 | The web scaffold: `VITE_API_URL`, the web's dependencies (zod, React types, the hooks lint rules), and the verification row for its API client |
 | 0.30 | 7 Nov 2026 | The web login: `VITE_DEMO_PASSWORD`, the web's test dependencies (jsdom, Testing Library), and the verification row for FR-AUTH-1 and FR-AUTH-2 in the page |
+| 0.31 | 7 Nov 2026 | FR-SEAT-5, the seat states a page polls; the `seat-poll` scenario in FR-DEV-5; verification rows for FR-SEAT-5, FR-WEB-1 and FR-WEB-4 |

@@ -203,7 +203,7 @@ To run the expiry sweeper alongside it, use `docker compose up -d sweeper`, or `
 
 To run the payment mock, use `docker compose up -d payments-mock`, which creates its `payments` schema and then listens on `127.0.0.1:4000`. On the host, run `npm run migrate` once, then `npm run payments`.
 
-To run the web page, use `npm run web` on the host. It serves the page at http://localhost:5173, where you can sign up, log in, or press **Log in as demo fan** to log in as a random seeded fan (after `npm run reset`). It also shows whether the API at `VITE_API_URL` answers `/health`. Until WP 8.1 adds its container, `docker compose up` doesn't start it.
+To run the web page, use `npm run web` on the host. It serves the page at http://localhost:5173, where you can sign up, log in, or press **Log in as demo fan** to log in as a random seeded fan (after `npm run reset`). Everyone sees the seat map, one grid per stand, kept fresh every 2 to 3 seconds. It also shows whether the API at `VITE_API_URL` answers `/health`. Until WP 8.1 adds its container, `docker compose up` doesn't start it.
 
 To run only the database, use `docker compose up -d postgres`. It creates `taquilla` and `taquilla_test`, and listens on `127.0.0.1:5432`. The init script runs only on an empty volume, so `docker compose down -v` is how you start again from nothing; it deletes all local data.
 
@@ -319,11 +319,14 @@ curl -X POST localhost:4000/charges \
 | `POST` | `/auth/signup` | None | Create an account | `201` | `400`, `409`, `429` |
 | `POST` | `/auth/login` | None | Get a JWT | `200` | `400`, `401`, `429` |
 | `GET` | `/events/:id/seats` | None | Seat map with live state | `200` | `404` |
+| `GET` | `/events/:id/seats/states` | None | Only the ids of held and sold seats, for polling | `200` | `404` |
 | `POST` | `/events/:id/holds` | JWT | Hold 1–6 seats, all or nothing; `Idempotency-Key` optional | `201` | `400`, `401`, `404`, `409`, `422` |
 | `DELETE` | `/holds/:id` | JWT | Release a hold early | `204` | `401`, `404` |
 | `POST` | `/holds/:id/checkout` | JWT | Reserve, charge, confirm; `Idempotency-Key` required | `200` with the paid order, as `GET /orders/:id` shows it | `400`, `401`, `402`, `404`, `409`, `422`, `503` |
 | `GET` | `/orders/:id` | JWT | The fan's own order, with its tickets and their seats | `200` | `401`, `404` |
 | `POST` | `/dev/buy-naive` | JWT | Dev only: the deliberately unsafe buy, `{ "seatId": 42 }` | `201` | `400`, `401`, `404`, `409` |
+
+`GET /events/:id/seats/states` answers `{ "held": [42, 43], "sold": [7] }`: the seats the full map would show as held or sold, by the same rules, in id order. The web page loads the full map once and then polls this, since names and prices never change. It's under 10 KB even with every seat sold, against the full map's 185 KB, and Postgres writes its JSON, so polling costs the API little ([Benchmarks](#benchmarks)).
 
 `DELETE /holds/:id` frees the seats the hold still has and marks it `released`. A seat another fan took after the hold lapsed stays theirs, and a paid hold stays as it is. Repeating it is harmless, and anyone else's hold gets the same `404` as one that doesn't exist.
 
@@ -419,7 +422,7 @@ npm test
 ```
 
 - **Naive buy:** it sells a free seat and refuses a sold one when requests come one at a time, honours `RACE_DELAY_MS`, and answers `404` under `NODE_ENV=production`.
-- **Seat map:** 2,000 seats in order, a lapsed hold reads `available`, a locked seat doesn't make the map wait, and unknown or malformed event ids get `404`.
+- **Seat map:** 2,000 seats in order, a lapsed hold reads `available`, a locked seat doesn't make the map wait, and unknown or malformed event ids get `404`. The states route lists live holds and sales in id order but not a lapsed hold, agrees with the full map on every seat, stays under 10 KB with every seat sold, and doesn't wait for a locked seat either.
 - **Tokens:** `npm run tokens` writes a token for each of the 1,000 seeded fans, and every one of them gets past `requireAuth`.
 - **Auth:** sign-up, duplicate emails, wrong passwords, and expired, tampered and missing tokens are covered. So are the rate limit and equal timing for unknown emails.
 - **Schema:** Postgres itself rejects a half-set hold on a seat, a second valid ticket for a seat and a second order for a hold.
@@ -445,6 +448,7 @@ npm test
 - **Expiry:** end to end with `HOLD_SECONDS=2`, a hold lasts 2 seconds, then its seats show as free and another fan can take them before any sweep, and the sweeper frees the rest. Under every strategy, a lapsed seat goes to the next fan, and a sweep running at the same moment never undoes their new hold. One sweep frees the whole stadium's lapsed seats, and four sweepers at once free each seat exactly once.
 - **Web API client:** every error answer becomes an `ApiError` with its status, code, message, seats and request ID, for each of the 16 codes. An error page that isn't JSON, an unknown code and a body the schema refuses become `BAD_RESPONSE`; no answer becomes `NETWORK_ERROR`, and no full answer within 30 seconds (5 for `/health`), `TIMEOUT`. A cancel by the page itself is passed on as it is. Against the real API app over HTTP, the client calls `/health`, its body, token and key reach the server's parser, the server's errors arrive intact, and CORS lets the page send its headers and read the request ID. `npm run typecheck` fails if the web's error codes and the server's ever differ. A `401` to a request that carried a token ends the session; a `401` to a login doesn't. Through the real auth routes, sign-up and login work, the token passes `requireAuth`, and the page can read its expiry.
 - **Web login:** in jsdom, the sign-up and login forms refuse what the API refuses, in its words, before sending anything, including a password of 37 `é`, which is 74 bytes. They send the email as the API stores it, sign up then log straight in, and show the API's refusals: a wrong password, a taken email, a rate limit, or no connection. The form locks while it waits. **Log in as demo fan** logs in as a random seeded fan, and explains how to seed them when the API doesn't know them. The session goes in `sessionStorage` and never `localStorage`; a reload keeps it, logging out clears it, and an expired token, whether found at load or reached while the page is open, sends the fan back to login with a notice. A token longer than `setTimeout`'s limit is waited out in steps. The sign-up and login rules live in one file both sides import, `api/src/auth/rules.ts`, and the web typecheck fails if it ever uses a Node API.
+- **Web seat map:** in jsdom, each stand is a grid of seat buttons named like "Fondo Sur, row F, seat 12, available", and the four states differ in class and words, not colour alone; held and sold seats are `aria-disabled` but still reachable. Only one seat per stand is in the tab order, and the arrow keys, Home and End (with Ctrl, the whole stand) move between seats, stopping at the edges. The page polls only the states, every 2 to 3 seconds at a random point in that window, pauses while the tab is hidden and catches up when it's shown, keeps the last map with a notice when a poll fails, retries a failed first load, and stops when it's gone. The whole 2,000-seat stadium renders.
 - **Checkout acceptance,** the six cases of requirements.md §9.1, in `checkout.test.ts` through the real payment client and mock. They passed 20 runs in a row.
   - Same key sent twice in parallel: one charge. The second gets `409 REQUEST_IN_PROGRESS`, retries with the same key, and ends with the same answer as the first
   - Provider loses the response and the client retries: still one charge
@@ -467,6 +471,7 @@ Changes reach `main` only through a pull request, and both jobs must pass on a b
 | `sellout` | 1,000 fans run 10,000 hold-then-checkout journeys for 1 to 4 adjacent seats, 70% aimed at the Lateral stands, with a fresh key per payment attempt | No failed requests; the audit passes |
 | `double-click` | 1,000 fans each hold two seats, then send the same checkout twice at once with one key, retrying a `409 REQUEST_IN_PROGRESS` with that key | Both clicks end with the same answer; one successful charge per order |
 | `churn` | In the Lateral Este stand, 250 fans hold every seat and walk away, 150 keep holding lapsed seats and walking away, and 300 keep trying to buy until holds expire | Expired seats are resold; the audit passes, also 45 s later |
+| `seat-poll` | 1,000 fans each load the seat map once, then poll the seat states every 2 to 3 seconds for 60 s, as the web page does. `-e POLL=map` polls the full map instead | Poll p95 under 500 ms; under 0.1% failed |
 
 ```bash
 npm run reset && npm run tokens
@@ -554,6 +559,15 @@ Each run started from a freshly reset stadium. The full results, how they were t
   - **Tried and reverted:** sending `BEGIN` and the transaction limits as one round trip made no measurable difference.
 - **On a laptop, repeated runs vary by up to about 20%,** as the machine heats up. Compare strategies within one batch.
 
+**Seat-map polling**, 1,000 fans each loading the map once and then polling every 2 to 3 seconds, with 1,950 of the 2,000 seats sold:
+
+| What the fans poll | Requests/s | Poll p95 | Most one process serves, back to back |
+| --- | --- | --- | --- |
+| The full map, 185 KB | 185 | 4.3 s | 197/s |
+| The seat states, 8.7 KB, JSON written by Postgres | 373 | 10.8 ms | 1,804/s |
+
+The full map couldn't keep up with 1,000 fans, as WP 6.4 predicted. Polling only the states, with Postgres writing the JSON, uses about a fifth of one API process, with no cache: every answer is current.
+
 These numbers compare strategies on one laptop. They are not a production capacity claim.
 
 ## Design decisions
@@ -624,6 +638,7 @@ taquilla/
 │   ├── src/
 │   │   ├── api/             # typed API client: every error answer becomes an ApiError
 │   │   ├── auth/            # login and sign-up forms, the demo fan, the tab's session
+│   │   ├── seats/           # the seat map: stand grids, keyboard moves, polling
 │   │   ├── config.ts        # VITE_API_URL and VITE_DEMO_PASSWORD, checked by the build and the page
 │   │   ├── services.ts      # the client and session the page runs on, wired together
 │   │   └── App.tsx          # the page: login, or who is logged in

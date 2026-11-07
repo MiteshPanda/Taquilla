@@ -21,6 +21,8 @@ import type { ErrorCode } from '../src/errors.js';
 import { createHealthRouter } from '../src/health/routes.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
+import { createSeatsRouter } from '../src/seats/routes.js';
+import { seedStadium } from '../../scripts/seed.js';
 import { schemaConnectionString } from './helpers/database.js';
 
 // Sign-up and login each run one bcrypt hash at cost 12, which can take a second on a laptop.
@@ -40,6 +42,7 @@ routes.use(
   '/auth',
   createAuthRouter({ db, config: { JWT_SECRET, JWT_EXPIRES_IN: TOKEN_SECONDS } }),
 );
+routes.use(createSeatsRouter({ db }));
 routes.get('/test/me', requireAuth(JWT_SECRET), (req, res) => {
   res.json({ userId: userIdOf(req) });
 });
@@ -68,6 +71,7 @@ beforeAll(async () => {
   await db.pool.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
   await db.pool.query(`CREATE SCHEMA ${SCHEMA}`);
   await runMigrations({ connectionString: CONNECTION_STRING, logger, production: true });
+  await db.withTransaction((client) => seedStadium(client, 'not-a-real-hash'));
 
   const app = createApp({ config: { CORS_ORIGINS: [WEB_ORIGIN] }, logger, routes });
   server = app.listen(0, '127.0.0.1');
@@ -202,5 +206,27 @@ describe('the web client against the real auth routes', () => {
       code: 'UNAUTHORIZED',
     });
     expect(onUnauthorized).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('the web client against the real seat routes', () => {
+  it("parses the seed's whole map, and the states the page polls", async () => {
+    const map = await api.seatMap(1);
+
+    expect(map.seats).toHaveLength(2_000);
+    expect(map.seats[0]).toMatchObject({ section: 'Fondo Norte', row: 'A', number: 1 });
+    await expect(api.seatStates(1)).resolves.toEqual({ held: [], sold: [] });
+
+    await db.pool.query(`UPDATE seats SET status = 'sold' WHERE id = ANY($1)`, [[42, 7]]);
+    try {
+      await expect(api.seatStates(1)).resolves.toEqual({ held: [], sold: [7, 42] });
+    } finally {
+      await db.pool.query(`UPDATE seats SET status = 'available' WHERE id = ANY($1)`, [[42, 7]]);
+    }
+  });
+
+  it('gets NOT_FOUND for an event that does not exist', async () => {
+    await expect(api.seatStates(999)).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
+    await expect(api.seatMap(999)).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
   });
 });
