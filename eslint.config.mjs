@@ -5,7 +5,8 @@ import { defineConfig, globalIgnores } from 'eslint/config';
 import tseslint from 'typescript-eslint';
 
 export default defineConfig(
-  globalIgnores(['**/dist/', 'coverage/']),
+  // .claude/ holds local agent tooling, such as installed skills, which git doesn't track.
+  globalIgnores(['**/dist/', 'coverage/', '.claude/']),
   js.configs.recommended,
   tseslint.configs.recommendedTypeChecked,
   {
