@@ -221,6 +221,7 @@ To run only the database, use `docker compose up -d postgres`. It creates `taqui
 - **The seed never deletes anything.** It seeds only a database with no match and no fans, so it runs on every start and leaves your data alone. `npm run reset` is still how you start again from a clean stadium.
 - **Small images, unprivileged users:**
   - **Built in stages:** each Dockerfile compiles the TypeScript in one stage, and the final image holds the compiled code and the production dependencies only, on `node:26.13.0-alpine3.24`.
+  - **Build checks are errors:** any warning from Docker's build checks fails the build.
   - **Users:** the Node services run as the image's `node` user and nginx as its own unprivileged user. Neither can change the code it runs.
   - **The build context is a list of what's allowed in** (`.dockerignore`), so `.env`, `loadtest/tokens.json` and `node_modules` never reach a build.
 - **Production mode:**
@@ -260,6 +261,7 @@ k6 run loadtest/sellout.js && npm run audit  # load test, then prove the four ru
 | `npm run sweeper` | Start the expiry sweeper |
 | `npm run payments` | Start the payment mock in watch mode on `PAYMENTS_PORT` |
 | `npm run audit` | Check the four rules in SQL and print a pass/fail table; exit code 1 if one is broken, 2 if it can't run |
+| `npm run smoke` | The k6 smoke test CI runs: a small `hot-seat`, `double-click` and `sellout` against a freshly seeded stadium; needs k6 and `npm run tokens` |
 
 ### Configuration
 
@@ -492,9 +494,19 @@ npm test
 
 ### Continuous integration
 
-Every push and pull request runs [the CI workflow](.github/workflows/ci.yml) against a Postgres 16 service container: `npm ci`, format check, lint, typecheck, the web build, migrate and test. A separate job runs `npm audit --audit-level=high`. Dependabot proposes npm and GitHub Actions updates every week.
+Every push and pull request runs [the CI workflow](.github/workflows/ci.yml), in three jobs:
 
-Changes reach `main` only through a pull request, and both jobs must pass on a branch that is up to date with `main`. Branch protection enforces this for everyone, including admins.
+| Job | What it runs |
+| --- | --- |
+| `test` | Against a Postgres 16 service container: `npm ci`, format check, lint, typecheck, the build of every package, migrate and the test suite |
+| `stack` | Builds the three images and starts the whole stack with `docker compose up --build --wait`, as on a fresh clone. Then `npm run tokens`, the k6 smoke test (`npm run smoke`, k6 2.3.0) and `npm run audit` against it. On a failure it prints every service's log |
+| `audit` | `npm audit --audit-level=high`, apart from the rest, so a new advisory can't hide whether the code passes |
+
+- **A broken image fails the pipeline:** a Dockerfile that doesn't build, a service that never turns healthy, or a migration or seed that fails each stop `stack`. Any warning from Docker's build checks fails a build too.
+- **The secret:** `stack` makes a fresh `JWT_SECRET` for each run, masked in the log.
+- **Dependabot** proposes npm, GitHub Actions and Docker base image updates every week, and CI builds and runs each one.
+
+Changes reach `main` only through a pull request, and all three jobs must pass on a branch that is up to date with `main`. Branch protection enforces this for everyone, including admins.
 
 ### Load tests
 
@@ -511,6 +523,23 @@ npm run reset && npm run tokens
 k6 run loadtest/hot-seat.js
 npm run audit
 ```
+
+**The smoke test.** `npm run smoke` runs three of these, small, one after another, and stops at the first that fails its thresholds. CI runs it on every push (NFR-12):
+
+| Run | Size | Passes when |
+| --- | --- | --- |
+| `hot-seat` | 50 virtual users, 500 requests for seat 42 | Exactly one hold wins; p95 under 2,500 ms |
+| `double-click` | 20 fans, seats 1 to 40 | Both clicks end with the same answer, and at least one order is paid |
+| `sellout` | 50 virtual users, 300 journeys | No failed requests, and at least one order is paid |
+
+It needs a clean stadium, because the hot seat must be free, and `npm run audit` straight after. With the stack running:
+
+```bash
+npm run reset && npm run tokens
+npm run smoke && npm run audit
+```
+
+On a laptop it takes about 10 seconds.
 
 `sellout` and `double-click` also need the payment mock beside the API, and the sweeper for the audit's fourth rule. `docker compose up` runs both; with the API on the host, run `npm run payments` and `npm run sweeper`. Reset before each run. To change `BOOKING_STRATEGY` or `HOLD_SECONDS` for the API in Docker, set it in `.env` and run `docker compose up -d api`.
 

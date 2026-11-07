@@ -44,7 +44,8 @@
     "tokens": "npm run tokens --workspace=@taquilla/api",
     "sweeper": "npm run sweeper --workspace=@taquilla/api",
     "payments": "npm run dev --workspace=@taquilla/payments-mock",
-    "audit": "npm run audit --workspace=@taquilla/api"
+    "audit": "npm run audit --workspace=@taquilla/api",
+    "smoke": "k6 run --quiet -e VUS=50 -e ITERATIONS=500 loadtest/hot-seat.js && k6 run --quiet -e VUS=20 loadtest/double-click.js && k6 run --quiet -e VUS=50 -e JOURNEYS=300 loadtest/sellout.js"
   },
   "lint-staged": {
     "*.{ts,tsx,js,mjs,cjs}": [

@@ -16,3 +16,13 @@ updates:
     directory: /
     schedule:
       interval: weekly
+
+  # The base images in the three Dockerfiles (WP 8.2). CI builds every image, so an update that
+  # breaks one fails its pull request.
+  - package-ecosystem: docker
+    directories:
+      - /api
+      - /payments-mock
+      - /web
+    schedule:
+      interval: weekly
