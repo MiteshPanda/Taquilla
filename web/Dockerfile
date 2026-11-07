@@ -28,7 +28,7 @@ RUN npm run build --workspace=@taquilla/web
 RUN api_origin="$(node -p 'new URL(process.env.VITE_API_URL).origin')" \
     && sed "s|__API_ORIGIN__|${api_origin}|" web/nginx.conf > /tmp/default.conf
 
-FROM nginxinc/nginx-unprivileged:1.30.6-alpine
+FROM nginxinc/nginx-unprivileged:1.31.7-alpine
 COPY --from=build /tmp/default.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/web/dist /usr/share/nginx/html
 EXPOSE 8080
