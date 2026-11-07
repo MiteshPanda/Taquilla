@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { ApiStatus } from './ApiStatus.js';
 import { AuthPage } from './auth/AuthPage.js';
-import { SeatMap } from './seats/SeatMap.js';
+import { Booking } from './holds/Booking.js';
 import type { Services } from './services.js';
 
 export interface AppProps {
@@ -38,7 +38,7 @@ export function App({ services: { api, session, config }, random }: AppProps) {
           random={random}
         />
       )}
-      <SeatMap api={api} random={random} />
+      <Booking api={api} token={current?.token ?? null} random={random} />
       <ApiStatus api={api} apiUrl={config.apiUrl} />
     </main>
   );

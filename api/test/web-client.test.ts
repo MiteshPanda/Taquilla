@@ -22,6 +22,10 @@ import { createHealthRouter } from '../src/health/routes.js';
 import { createLogger } from '../src/logger.js';
 import { runMigrations } from '../src/migrate.js';
 import { createSeatsRouter } from '../src/seats/routes.js';
+import { createHoldsRouter } from '../src/holds/routes.js';
+import { createHoldStrategy } from '../src/holds/strategies.js';
+import { signToken } from '../src/auth/tokens.js';
+import { takenMessage } from '../../web/src/seats/seats.js';
 import { seedStadium } from '../../scripts/seed.js';
 import { schemaConnectionString } from './helpers/database.js';
 
@@ -43,6 +47,13 @@ routes.use(
   createAuthRouter({ db, config: { JWT_SECRET, JWT_EXPIRES_IN: TOKEN_SECONDS } }),
 );
 routes.use(createSeatsRouter({ db }));
+routes.use(
+  createHoldsRouter({
+    db,
+    holdStrategy: createHoldStrategy('lock', { db, holdSeconds: 300, logger }),
+    config: { JWT_SECRET },
+  }),
+);
 routes.get('/test/me', requireAuth(JWT_SECRET), (req, res) => {
   res.json({ userId: userIdOf(req) });
 });
@@ -228,5 +239,57 @@ describe('the web client against the real seat routes', () => {
   it('gets NOT_FOUND for an event that does not exist', async () => {
     await expect(api.seatStates(999)).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
     await expect(api.seatMap(999)).rejects.toMatchObject({ status: 404, code: 'NOT_FOUND' });
+  });
+});
+
+describe('the web client against the real holds routes', () => {
+  // Seeded fans 1 and 2, each in their own browser.
+  const fanOne = () => signToken(1, JWT_SECRET, TOKEN_SECONDS);
+  const fanTwo = () => signToken(2, JWT_SECRET, TOKEN_SECONDS);
+
+  it('gives a seat two fans race for to one of them, and the other a message naming it', async () => {
+    const results = await Promise.allSettled([
+      api.holdSeats(1, [9], fanOne(), 'race-one'),
+      api.holdSeats(1, [9], fanTwo(), 'race-two'),
+    ]);
+
+    const won = results.filter((result) => result.status === 'fulfilled');
+    const lost = results.filter((result) => result.status === 'rejected');
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    const error: unknown = lost[0]?.reason;
+    expect(error).toBeInstanceOf(ApiError);
+    expect(error).toMatchObject({ status: 409, code: 'SEAT_TAKEN', seatIds: [9] });
+
+    // What the losing page shows, from the seat the 409 named.
+    const { seats } = await api.seatMap(1);
+    const named = seats.filter((seat) => (error as ApiError).seatIds.includes(seat.id));
+    expect(takenMessage(named)).toBe('Someone just took A-9 in Lateral Este. Pick another seat.');
+
+    const hold = won[0]?.value;
+    if (hold === undefined) throw new Error('no winner');
+    const winner = results[0]?.status === 'fulfilled' ? fanOne() : fanTwo();
+    await expect(api.seatStates(1)).resolves.toEqual({ held: [9], sold: [] });
+    await api.releaseHold(hold.holdId, winner);
+    await expect(api.seatStates(1)).resolves.toEqual({ held: [], sold: [] });
+  });
+
+  it('answers a retried hold with the same key with the same hold', async () => {
+    const first = await api.holdSeats(1, [10, 11], fanOne(), 'retry-key');
+    const again = await api.holdSeats(1, [10, 11], fanOne(), 'retry-key');
+
+    expect(again).toEqual(first);
+    expect(Date.parse(first.expiresAt)).toBeGreaterThan(Date.now());
+    await api.releaseHold(first.holdId, fanOne());
+  });
+
+  it("refuses to release someone else's hold, with the same 404 as an unknown one", async () => {
+    const hold = await api.holdSeats(1, [12], fanOne(), 'own-key');
+
+    await expect(api.releaseHold(hold.holdId, fanTwo())).rejects.toMatchObject({
+      status: 404,
+      code: 'NOT_FOUND',
+    });
+    await api.releaseHold(hold.holdId, fanOne());
   });
 });

@@ -270,3 +270,54 @@ button:disabled {
   padding: 0.5rem 0.75rem;
   border-left: 4px solid var(--seat-held);
 }
+
+/* Picked but not yet held: a thick outline in the "yours" colour and a dot, not colour alone. */
+.seat-selected {
+  border-width: 3px;
+  border-color: var(--seat-yours);
+  color: var(--seat-yours);
+}
+
+.seat-selected::after {
+  content: '•';
+}
+
+.seat[aria-disabled='true'] {
+  cursor: not-allowed;
+}
+
+/* The picks and the hold stay in reach at the bottom of the screen while the map scrolls. */
+.hold-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  margin-top: 1rem;
+  padding: 0.75rem 1rem;
+  border-top: 2px solid var(--seat-yours);
+  background: Canvas;
+  box-shadow: 0 -0.25rem 0.75rem light-dark(#0002, #0008);
+}
+
+.hold-bar p {
+  margin: 0 0 0.5rem;
+}
+
+.hold-notice-alert {
+  color: light-dark(#b42318, #ff8a7a);
+  font-weight: 600;
+}
+
+.countdown [role='timer'] {
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+}
+
+/* Read by screen readers, not shown. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}

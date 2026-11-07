@@ -11,6 +11,8 @@ interface SeatButtonProps {
   column: number;
   tabbable: boolean;
   onFocusSeat: (row: number, column: number) => void;
+  // Picks or unpicks the seat; absent while seats can't be picked, as during a hold.
+  onToggleSeat: ((seat: Seat) => void) | undefined;
 }
 
 // Memoised, so a poll re-renders only the seats whose state changed.
@@ -21,8 +23,10 @@ const SeatButton = memo(function SeatButton({
   column,
   tabbable,
   onFocusSeat,
+  onToggleSeat,
 }: SeatButtonProps) {
   const label = seatLabel(seat, view);
+  const pickable = onToggleSeat !== undefined && (view === 'available' || view === 'selected');
   return (
     <button
       type="button"
@@ -32,9 +36,12 @@ const SeatButton = memo(function SeatButton({
       tabIndex={tabbable ? 0 : -1}
       aria-label={label}
       title={label}
-      // Still focusable, so a screen reader can reach a sold seat and hear that it's sold.
-      aria-disabled={view === 'held' || view === 'sold' ? true : undefined}
+      // A seat that can be picked is a toggle. One that can't stays focusable, so a screen
+      // reader can still reach a sold seat and hear that it's sold.
+      aria-pressed={pickable ? view === 'selected' : undefined}
+      aria-disabled={pickable ? undefined : true}
       onFocus={() => onFocusSeat(row, column)}
+      onClick={pickable ? () => onToggleSeat(seat) : undefined}
     />
   );
 });
@@ -45,11 +52,19 @@ export interface StandGridProps {
   stand: Stand;
   states: SeatStateMap;
   mine: ReadonlySet<number>;
+  selected: ReadonlySet<number>;
+  onToggleSeat: ((seat: Seat) => void) | undefined;
 }
 
 // One stand as a grid of seat buttons. Only one seat per stand is in the tab order, so the page
 // isn't 2,000 tab stops long; the arrow keys, Home and End move between seats (a roving tabindex).
-export const StandGrid = memo(function StandGrid({ stand, states, mine }: StandGridProps) {
+export const StandGrid = memo(function StandGrid({
+  stand,
+  states,
+  mine,
+  selected,
+  onToggleSeat,
+}: StandGridProps) {
   const [active, setActive] = useState<Position>([0, 0]);
   const grid = useRef<HTMLDivElement>(null);
   const headingId = useId();
@@ -107,11 +122,16 @@ export const StandGrid = memo(function StandGrid({ stand, states, mine }: StandG
                 <span role="gridcell" key={seat.id}>
                   <SeatButton
                     seat={seat}
-                    view={viewOf(states.get(seat.id) ?? seat.state, mine.has(seat.id))}
+                    view={viewOf(
+                      states.get(seat.id) ?? seat.state,
+                      mine.has(seat.id),
+                      selected.has(seat.id),
+                    )}
                     row={r}
                     column={c}
                     tabbable={active[0] === r && active[1] === c}
                     onFocusSeat={onFocusSeat}
+                    onToggleSeat={onToggleSeat}
                   />
                 </span>
               ))}
