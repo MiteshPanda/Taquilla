@@ -490,3 +490,53 @@ describe('holds', () => {
     expect(calls[0]?.url).toBe('http://api.test/v1/holds/..%2Forders%2Fx');
   });
 });
+
+describe('checkout', () => {
+  const ORDER = {
+    orderId: '0b7c6c1a-2f4e-4d7b-8a62-3c9e5d1f7a20',
+    holdId: '6f1c1e0e-6b1a-4a51-9a3e-2f0c1a7d9e11',
+    status: 'paid',
+    amountPaise: 900_000,
+    createdAt: '2026-11-07T12:00:00.000Z',
+    tickets: [
+      { id: 1, seatId: 41, section: 'Lateral Este', row: 'B', number: 16, pricePaise: 450_000 },
+      { id: 2, seatId: 42, section: 'Lateral Este', row: 'B', number: 17, pricePaise: 450_000 },
+    ],
+  };
+
+  it('pays with a POST to the hold, carrying the token and the key, and no body', async () => {
+    const { calls, fetch } = fakeFetch(() => json(200, ORDER));
+
+    await expect(
+      createApiClient({ baseUrl: BASE_URL, fetch }).checkout(ORDER.holdId, 'a.b.c', 'pay-1'),
+    ).resolves.toEqual(ORDER);
+
+    expect(calls[0]?.url).toBe(`http://api.test/v1/holds/${ORDER.holdId}/checkout`);
+    expect(calls[0]?.init).toMatchObject({ method: 'POST', body: null });
+    expect(headersOf(calls[0]).get('authorization')).toBe('Bearer a.b.c');
+    expect(headersOf(calls[0]).get('idempotency-key')).toBe('pay-1');
+  });
+
+  it('keeps a strange hold id inside its own path segment', async () => {
+    const { calls, fetch } = fakeFetch(() => json(200, ORDER));
+
+    await createApiClient({ baseUrl: BASE_URL, fetch }).checkout('../orders/x', 'a.b.c', 'pay-1');
+
+    expect(calls[0]?.url).toBe('http://api.test/v1/holds/..%2Forders%2Fx/checkout');
+  });
+
+  it.each([
+    ['an unknown status', { ...ORDER, status: 'shipped' }],
+    [
+      'a ticket priced in fractions of paise',
+      { ...ORDER, tickets: [{ ...ORDER.tickets[0], pricePaise: 1.5 }] },
+    ],
+    ['no tickets list', { ...ORDER, tickets: undefined }],
+  ])('refuses an order with %s', async (_case, body) => {
+    const { fetch } = fakeFetch(() => json(200, body));
+
+    await expect(
+      createApiClient({ baseUrl: BASE_URL, fetch }).checkout(ORDER.holdId, 'a.b.c', 'pay-1'),
+    ).rejects.toMatchObject({ code: 'BAD_RESPONSE' });
+  });
+});

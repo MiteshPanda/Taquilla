@@ -2,7 +2,23 @@
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createApiClient } from '../src/api/client.js';
-import { ALREADY_ENDED, Booking, EXPIRED, FULL, RELEASED } from '../src/holds/Booking.js';
+import { Booking } from '../src/holds/Booking.js';
+import { IN_PROGRESS_TRIES, IN_PROGRESS_WAIT_MS } from '../src/checkout/pay.js';
+import { RESERVE_MS } from '../src/holds/HoldPanel.js';
+import {
+  ALREADY_ENDED,
+  DECLINED,
+  EXPIRED,
+  FULL,
+  HOLD_GONE,
+  HOLD_RAN_OUT,
+  PAYING,
+  RELEASED,
+  SEATS_LOST_REFUNDED,
+  STILL_GOING,
+  UNAVAILABLE,
+  UNCONFIRMED,
+} from '../src/holds/messages.js';
 import { POLL_MIN_MS } from '../src/seats/useSeatMap.js';
 import type { Call } from './helpers.js';
 import { bodyOf, fakeFetch, json, stadium } from './helpers.js';
@@ -35,19 +51,48 @@ function holdFor(seatIds: number[]) {
   };
 }
 
+const ORDER_ID = '0b7c6c1a-2f4e-4d7b-8a62-3c9e5d1f7a20';
+
+// The order a paid checkout answers with, for the seats held.
+function orderFor(seatIds: number[]) {
+  return {
+    orderId: ORDER_ID,
+    holdId: HOLD_ID,
+    status: 'paid',
+    amountPaise: 250_000 * seatIds.length,
+    createdAt: new Date(Date.now()).toISOString(),
+    tickets: seatIds.map((seatId, i) => {
+      const seat = MAP.seats.find((s) => s.id === seatId);
+      return {
+        id: i + 1,
+        seatId,
+        section: seat?.section,
+        row: seat?.row,
+        number: seat?.number,
+        pricePaise: 250_000,
+      };
+    }),
+  };
+}
+
 function setup({
   token = TOKEN,
   hold = (call: Call) => json(201, holdFor((bodyOf(call) as { seatIds: number[] }).seatIds)),
   release = () => new Response(null, { status: 204 }),
   states = () => json(200, { held: [], sold: [] }),
+  checkout = () => json(200, orderFor([1, 2])),
 }: {
   token?: string | null;
   hold?: Answer;
   release?: Answer;
   states?: Answer;
+  checkout?: Answer;
 } = {}) {
   const { calls, fetch } = fakeFetch((call) => {
     const path = new URL(call.url).pathname;
+    if (call.init.method === 'POST' && path === `/holds/${HOLD_ID}/checkout`) {
+      return checkout(call);
+    }
     if (call.init.method === 'POST' && path === '/events/1/holds') return hold(call);
     if (call.init.method === 'DELETE' && path.startsWith('/holds/')) return release(call);
     if (path === '/events/1/seats/states') return states(call);
@@ -65,6 +110,7 @@ function setup({
     view,
     rerender: (next: string | null) => view.rerender(<Booking {...props} token={next} />),
     holdCalls: () => callsTo('POST', '/events/1/holds'),
+    checkoutCalls: () => callsTo('POST', `/holds/${HOLD_ID}/checkout`),
     releaseCalls: () => calls.filter((call) => call.init.method === 'DELETE'),
     pollCalls: () => callsTo('GET', '/events/1/seats/states').length,
   };
@@ -476,5 +522,226 @@ describe('releasing', () => {
       "Can't reach Taquilla. Check your connection and try again.",
     );
     expect(screen.getByRole('timer')).toBeTruthy();
+  });
+});
+
+describe('paying (FR-WEB-3)', () => {
+  const error =
+    (status: number, code: string, message = 'The API says no.') =>
+    () =>
+      json(status, { error: { code, message } });
+
+  // Holds A-1 and A-2 (key-1), then opens the payment step, which makes the payment key, key-2.
+  async function atPayment(options: Parameters<typeof setup>[0] = {}) {
+    const harness = setup(options);
+    await advance(0);
+    await click('Fondo Norte, row A, seat 1, available');
+    await click('Fondo Norte, row A, seat 2, available');
+    await click('Hold 2 seats');
+    await click('Check out');
+    return harness;
+  }
+
+  const payKeys = (calls: Call[]) => calls.map((call) => headerOf(call, 'Idempotency-Key'));
+  const PAID = 'Paid ₹5,000. Your tickets:';
+
+  it('pays with the key made when the step opened, then shows the tickets', async () => {
+    const { checkoutCalls, pollCalls } = await atPayment();
+    expect(screen.getByText('This is a test payment: no real money moves.')).toBeTruthy();
+    const pollsBefore = pollCalls();
+
+    await click('Pay ₹5,000');
+
+    expect(payKeys(checkoutCalls())).toEqual(['key-2']);
+    expect(headerOf(checkoutCalls()[0], 'Authorization')).toBe(`Bearer ${TOKEN}`);
+    expect(checkoutCalls()[0]?.init.body).toBeNull();
+    expect(screen.getByRole('status').textContent).toBe(PAID);
+    const tickets = [...document.querySelectorAll('.tickets li')].map((item) => item.textContent);
+    expect(tickets).toEqual([
+      'Fondo Norte, row A, seat 1 · ₹2,500',
+      'Fondo Norte, row A, seat 2 · ₹2,500',
+    ]);
+    expect(bar().textContent).toContain(`Order ${ORDER_ID}`);
+    expect(pollCalls()).toBe(pollsBefore + 1);
+
+    await click('Pick more seats');
+    expect(bar().textContent).toBe('Pick up to 6 seats on the map.');
+  });
+
+  it('sends one request for a double-clicked Pay', async () => {
+    const answer = Promise.withResolvers<Response>();
+    const { checkoutCalls } = await atPayment({ checkout: () => answer.promise });
+    const pay = screen.getByRole('button', { name: 'Pay ₹5,000' });
+
+    // Both clicks land before the page redraws and disables the button.
+    act(() => {
+      pay.click();
+      pay.click();
+    });
+    await advance(0);
+
+    expect(checkoutCalls()).toHaveLength(1);
+    expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Paying…' }).disabled).toBe(true);
+    expect(screen.getByText(PAYING)).toBeTruthy();
+    // The countdown steps aside while paying, and the hold can't be released mid-payment.
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Release' })).toBeNull();
+    answer.resolve(json(200, orderFor([1, 2])));
+    await advance(0);
+    expect(screen.getByText(PAID)).toBeTruthy();
+  });
+
+  it('rides out 409 REQUEST_IN_PROGRESS with the same key until the first answer comes back', async () => {
+    let n = 0;
+    const { checkoutCalls } = await atPayment({
+      checkout: () => (++n < 3 ? error(409, 'REQUEST_IN_PROGRESS')() : json(200, orderFor([1, 2]))),
+    });
+
+    await click('Pay ₹5,000');
+    expect(checkoutCalls()).toHaveLength(1);
+    expect(screen.getByText(PAYING)).toBeTruthy();
+    await advance(IN_PROGRESS_WAIT_MS);
+    await advance(IN_PROGRESS_WAIT_MS);
+
+    expect(payKeys(checkoutCalls())).toEqual(['key-2', 'key-2', 'key-2']);
+    expect(screen.getByText(PAID)).toBeTruthy();
+  });
+
+  it('says the payment is still going through if the first never answers, then tries the same key', async () => {
+    const { checkoutCalls } = await atPayment({ checkout: error(409, 'REQUEST_IN_PROGRESS') });
+
+    await click('Pay ₹5,000');
+    await advance(IN_PROGRESS_WAIT_MS * IN_PROGRESS_TRIES);
+    expect(screen.getByRole('status').textContent).toBe(STILL_GOING);
+
+    await click('Pay ₹5,000');
+    expect(new Set(payKeys(checkoutCalls()))).toEqual(new Set(['key-2']));
+  });
+
+  it('keeps the key for a retry after the provider was unavailable (503)', async () => {
+    let n = 0;
+    const { checkoutCalls } = await atPayment({
+      checkout: () =>
+        ++n === 1 ? error(503, 'PAYMENT_UNAVAILABLE')() : json(200, orderFor([1, 2])),
+    });
+
+    await click('Pay ₹5,000');
+    expect(screen.getByRole('alert').textContent).toBe(UNAVAILABLE);
+
+    await click('Pay ₹5,000');
+    expect(payKeys(checkoutCalls())).toEqual(['key-2', 'key-2']);
+    expect(screen.getByText(PAID)).toBeTruthy();
+  });
+
+  it('keeps the key for a retry after an answer that never came', async () => {
+    let n = 0;
+    const { checkoutCalls } = await atPayment({
+      checkout: () =>
+        ++n === 1 ? Promise.reject(new TypeError('Failed to fetch')) : json(200, orderFor([1, 2])),
+    });
+
+    await click('Pay ₹5,000');
+    expect(screen.getByRole('alert').textContent).toBe(UNCONFIRMED);
+
+    await click('Pay ₹5,000');
+    expect(payKeys(checkoutCalls())).toEqual(['key-2', 'key-2']);
+  });
+
+  it('makes a new key only after a decline', async () => {
+    let n = 0;
+    const { checkoutCalls } = await atPayment({
+      checkout: () => (++n === 1 ? error(402, 'PAYMENT_DECLINED')() : json(200, orderFor([1, 2]))),
+    });
+
+    await click('Pay ₹5,000');
+    expect(screen.getByRole('alert').textContent).toBe(DECLINED);
+
+    await click('Pay ₹5,000');
+    expect(payKeys(checkoutCalls())).toEqual(['key-2', 'key-3']);
+    expect(screen.getByText(PAID)).toBeTruthy();
+  });
+
+  it.each([
+    ['a decline', 402, 'PAYMENT_DECLINED'],
+    ['an outage', 503, 'PAYMENT_UNAVAILABLE'],
+  ])('keeps the seats on the countdown for 10 minutes after %s', async (_case, status, code) => {
+    await atPayment({ checkout: error(status, code) });
+    expect(screen.getByRole('timer').textContent).toBe('5:01');
+
+    await click('Pay ₹5,000');
+    await advance(500);
+
+    expect(screen.getByRole('timer').textContent).toBe('10:00');
+  });
+
+  it('keeps the seats on the countdown for 10 minutes once a payment reached the API', async () => {
+    await atPayment({ checkout: error(402, 'PAYMENT_DECLINED') });
+    expect(screen.getByRole('timer').textContent).toBe('5:01');
+
+    await click('Pay ₹5,000');
+    await advance(500);
+
+    expect(RESERVE_MS).toBe(600_000);
+    expect(screen.getByRole('timer').textContent).toBe('10:00');
+    // Long after the hold's first 5 minutes, it's still there.
+    await advance(HOLD_MS + 1_000);
+    expect(screen.queryByText(EXPIRED)).toBeNull();
+    expect(screen.getByRole('timer')).toBeTruthy();
+  });
+
+  it('keeps the key when the fan goes back and opens the payment step again', async () => {
+    let n = 0;
+    const { checkoutCalls } = await atPayment({
+      checkout: () =>
+        ++n === 1 ? error(503, 'PAYMENT_UNAVAILABLE')() : json(200, orderFor([1, 2])),
+    });
+    await click('Pay ₹5,000');
+
+    await click('Back');
+    await click('Check out');
+    await click('Pay ₹5,000');
+
+    expect(payKeys(checkoutCalls())).toEqual(['key-2', 'key-2']);
+  });
+
+  it.each([
+    ['HOLD_EXPIRED', 409, HOLD_RAN_OUT],
+    ['SEAT_LOST_REFUNDED', 409, SEATS_LOST_REFUNDED],
+    ['NOT_FOUND', 404, HOLD_GONE],
+  ])('ends the hold on %s, says why and refreshes the map', async (code, status, text) => {
+    const { pollCalls } = await atPayment({ checkout: error(status, code) });
+    const pollsBefore = pollCalls();
+
+    await click('Pay ₹5,000');
+
+    expect(screen.getByRole('alert').textContent).toBe(text);
+    expect(screen.queryByRole('timer')).toBeNull();
+    expect(bar().textContent).toContain('Pick up to 6 seats on the map.');
+    expect(pollCalls()).toBe(pollsBefore + 1);
+  });
+
+  it('shows another tab paying in the API words and keeps the key', async () => {
+    const message =
+      'This order is already being paid in another tab or window. Wait for it to finish.';
+    const { checkoutCalls } = await atPayment({
+      checkout: error(409, 'PAYMENT_IN_PROGRESS', message),
+    });
+
+    await click('Pay ₹5,000');
+    await click('Pay ₹5,000');
+
+    expect(screen.getByRole('alert').textContent).toBe(message);
+    expect(payKeys(checkoutCalls())).toEqual(['key-2', 'key-2']);
+  });
+
+  it('makes a new key if the API says this key was used for something else', async () => {
+    const { checkoutCalls } = await atPayment({
+      checkout: error(422, 'IDEMPOTENCY_KEY_REUSED', 'This key was used for a different request.'),
+    });
+
+    await click('Pay ₹5,000');
+    await click('Pay ₹5,000');
+
+    expect(payKeys(checkoutCalls())).toEqual(['key-2', 'key-3']);
   });
 });

@@ -69,6 +69,26 @@ const holdBody = z.object({
 });
 export type Hold = z.infer<typeof holdBody>;
 
+// POST /holds/:id/checkout answers with the paid order, as GET /orders/:id shows it.
+const orderBody = z.object({
+  orderId: z.uuid(),
+  holdId: z.uuid(),
+  status: z.enum(['pending', 'paying', 'paid', 'refunded']),
+  amountPaise: z.number().int().positive(),
+  createdAt: z.iso.datetime({ offset: true }),
+  tickets: z.array(
+    z.object({
+      id: z.number().int(),
+      seatId: z.number().int(),
+      section: z.string(),
+      row: z.string(),
+      number: z.number().int(),
+      pricePaise: z.number().int().positive(),
+    }),
+  ),
+});
+export type Order = z.infer<typeof orderBody>;
+
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
 export interface ApiClientOptions {
@@ -112,6 +132,8 @@ export interface ApiClient {
     idempotencyKey: string,
   ): Promise<Hold>;
   releaseHold(holdId: string, token: string): Promise<void>;
+  // Pays for a hold. The key is required (FR-PAY-1): the same key never charges twice.
+  checkout(holdId: string, token: string, idempotencyKey: string): Promise<Order>;
 }
 
 // Called as a plain function: a browser refuses fetch called as a method of another object.
@@ -201,6 +223,12 @@ export function createApiClient({
       }),
     releaseHold: (holdId, token) =>
       request(`/holds/${encodeURIComponent(holdId)}`, z.undefined(), { method: 'DELETE', token }),
+    checkout: (holdId, token, idempotencyKey) =>
+      request(`/holds/${encodeURIComponent(holdId)}/checkout`, orderBody, {
+        method: 'POST',
+        token,
+        idempotencyKey,
+      }),
     seatStates: (eventId, signal) =>
       request(`/events/${eventId}/seats/states`, seatStatesBody, {
         signal,
