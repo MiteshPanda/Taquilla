@@ -1,4 +1,4 @@
-import type { Fetch } from '../src/api/client.js';
+import type { Fetch, Seat, SeatMapData } from '../src/api/client.js';
 import type { SessionStorage } from '../src/auth/session.js';
 
 export interface Call {
@@ -72,3 +72,39 @@ export function memoryStorage(entries: Record<string, string> = {}) {
     },
   };
 }
+
+export const EVENT = {
+  id: 1,
+  name: 'Chamartín FC vs Castellana United',
+  startsAt: '2026-12-07T15:30:00.000Z',
+};
+
+// A stadium shaped like the seed's (FR-SEAT-4), in the API's order, or a smaller one for speed.
+export function stadium({ rows = 20, seatsPerRow = 25, stands = SEED_STANDS } = {}): SeatMapData {
+  const seats: Seat[] = [];
+  let id = 0;
+  for (const [section, pricePaise] of stands) {
+    for (let r = 0; r < rows; r += 1) {
+      for (let n = 1; n <= seatsPerRow; n += 1) {
+        id += 1;
+        seats.push({
+          id,
+          section,
+          row: String.fromCharCode(65 + r),
+          number: n,
+          pricePaise,
+          state: 'available',
+        });
+      }
+    }
+  }
+  return { event: EVENT, seats };
+}
+
+// Sorted by name, as the API orders sections.
+const SEED_STANDS: readonly (readonly [string, number])[] = [
+  ['Fondo Norte', 250_000],
+  ['Fondo Sur', 250_000],
+  ['Lateral Este', 450_000],
+  ['Lateral Oeste', 450_000],
+];

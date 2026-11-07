@@ -7,7 +7,7 @@ import { STORAGE_KEY } from '../src/auth/session.js';
 import { DEFAULT_DEMO_PASSWORD } from '../src/config.js';
 import { createServices } from '../src/services.js';
 import type { Call } from './helpers.js';
-import { bodyOf, fakeFetch, json, makeToken } from './helpers.js';
+import { bodyOf, fakeFetch, json, makeToken, stadium } from './helpers.js';
 
 const HOUR = 3_600_000;
 const PASSWORD_RULE = 'Use a password of at least 8 characters and at most 72 bytes.';
@@ -17,18 +17,21 @@ const INCORRECT = {
 
 type Route = (call: Call) => Response | Promise<Response>;
 
-// The API as the page sees it: /health answers, and each test says what the auth routes do.
+// The API as the page sees it: /health and the seat map answer, and each test says what the auth
+// routes do.
 function renderApp(routes: Record<string, Route> = {}, random = () => 0.006) {
   const { calls, fetch } = fakeFetch((call) => {
     const route = `${call.init.method} ${new URL(call.url).pathname}`;
     if (route === 'GET /health') return json(200, { status: 'ok' });
+    if (route === 'GET /events/1/seats') return json(200, stadium({ rows: 1, seatsPerRow: 2 }));
+    if (route === 'GET /events/1/seats/states') return json(200, { held: [], sold: [] });
     const answer = routes[route];
     if (answer === undefined) throw new Error(`Unexpected request: ${route}`);
     return answer(call);
   });
   const services = createServices({}, window, fetch);
   render(<App services={services} random={random} />);
-  const authCalls = () => calls.filter((call) => !call.url.endsWith('/health'));
+  const authCalls = () => calls.filter((call) => new URL(call.url).pathname.startsWith('/auth/'));
   return { services, authCalls };
 }
 
@@ -288,5 +291,17 @@ describe('the end of a session', () => {
 
     expect((await loggedIn()).textContent).toBe('Logged in as fan7@taquilla.test');
     await waitFor(() => expect(screen.getByText(/is up/)).toBeTruthy());
+  });
+});
+
+describe('the seat map', () => {
+  it('is on the page whether or not anyone is logged in', async () => {
+    renderApp({ 'POST /auth/login': () => json(200, { token: makeToken(Date.now() + HOUR) }) });
+
+    expect(await screen.findByRole('grid', { name: 'Fondo Norte' })).toBeTruthy();
+
+    click('Log in as demo fan');
+    await loggedIn();
+    expect(screen.getByRole('grid', { name: 'Fondo Norte' })).toBeTruthy();
   });
 });

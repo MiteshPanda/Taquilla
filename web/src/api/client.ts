@@ -6,6 +6,8 @@ import { ApiError, SERVER_ERROR_CODES } from './errors.js';
 // 3-second attempts. A request cut short is still safe to send again with the same key.
 export const REQUEST_TIMEOUT_MS = 30_000;
 export const HEALTH_TIMEOUT_MS = 5_000;
+// Seat reads are polled every 2 to 3 seconds, so a stuck one is dropped well before the next.
+export const SEAT_READ_TIMEOUT_MS = 10_000;
 
 const REQUEST_ID_HEADER = 'X-Request-Id';
 
@@ -30,6 +32,33 @@ export type Health = z.infer<typeof healthBody>;
 const tokenBody = z.object({ token: z.string().min(1) });
 const newFanBody = z.object({ id: z.number().int().positive(), email: z.string() });
 export type NewFan = z.infer<typeof newFanBody>;
+
+const seatState = z.enum(['available', 'held', 'sold']);
+export type SeatState = z.infer<typeof seatState>;
+
+// GET /events/:id/seats (FR-SEAT-1): every seat, in section, row and seat order.
+const seatMapBody = z.object({
+  event: z.object({ id: z.number().int(), name: z.string(), startsAt: z.string() }),
+  seats: z.array(
+    z.object({
+      id: z.number().int(),
+      section: z.string(),
+      row: z.string(),
+      number: z.number().int(),
+      pricePaise: z.number().int().positive(),
+      state: seatState,
+    }),
+  ),
+});
+export type SeatMapData = z.infer<typeof seatMapBody>;
+export type Seat = SeatMapData['seats'][number];
+
+// GET /events/:id/seats/states (FR-SEAT-5): the ids of the seats that aren't available.
+const seatStatesBody = z.object({
+  held: z.array(z.number().int()),
+  sold: z.array(z.number().int()),
+});
+export type SeatStates = z.infer<typeof seatStatesBody>;
 
 export type Fetch = (input: string, init: RequestInit) => Promise<Response>;
 
@@ -64,6 +93,8 @@ export interface ApiClient {
   // Resolves with the fan's login token.
   logIn(credentials: Credentials): Promise<string>;
   signUp(credentials: Credentials): Promise<NewFan>;
+  seatMap(eventId: number, signal?: AbortSignal): Promise<SeatMapData>;
+  seatStates(eventId: number, signal?: AbortSignal): Promise<SeatStates>;
 }
 
 // Called as a plain function: a browser refuses fetch called as a method of another object.
@@ -142,5 +173,12 @@ export function createApiClient({
       (await request('/auth/login', tokenBody, { method: 'POST', body: credentials })).token,
     signUp: (credentials) =>
       request('/auth/signup', newFanBody, { method: 'POST', body: credentials }),
+    seatMap: (eventId, signal) =>
+      request(`/events/${eventId}/seats`, seatMapBody, { signal, timeoutMs: SEAT_READ_TIMEOUT_MS }),
+    seatStates: (eventId, signal) =>
+      request(`/events/${eventId}/seats/states`, seatStatesBody, {
+        signal,
+        timeoutMs: SEAT_READ_TIMEOUT_MS,
+      }),
   };
 }

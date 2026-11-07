@@ -98,11 +98,35 @@ The final runs below are on the code as merged.
 
 **Run-to-run variance is large on a laptop.** Across the 12 hot-seat `lock` runs of this session, on four versions of the code, throughput ranged from 469 to 689 requests/s as the machine heated up. Compare strategies within one batch, as the tables above do, and repeat a run before trusting a difference under about 20%.
 
-## A finding for M7
+## Seat-map polling (WP 7.3)
 
-The seat map serves about **200 to 230 requests/s per API process** here. The web page is meant to reload it every 2 to 3 seconds (FR-WEB-4), so 1,000 fans would ask about 400 times a second. For M7, the cheapest fixes are:
-- **Caching:** cache the rendered seat map for a second, or answer `304` to an unchanged `ETag`.
-- **A smaller answer:** send seat states only, since seat names and prices never change.
+WP 6.4 found that one API process served the full seat map (`GET /events/:id/seats`) only 200 to 230 times a second. Each answer is 2,000 seats, about 185 KB of JSON. The web page refreshes the map every 2 to 3 seconds (FR-WEB-4), so 1,000 fans ask about 400 times a second.
+
+**The fix: poll only what changes.**
+- **The page loads the full map once.** Seat names and prices never change, so they're never sent again.
+- **Then it polls `GET /events/:id/seats/states` (FR-SEAT-5),** which lists only the ids of held and sold seats: 23 bytes on an empty stadium, 8.7 KB with 1,950 seats sold.
+- **Postgres writes that answer's JSON itself,** in one row the API passes straight on. The first version parsed one row per taken seat and serialised them again, and capped out at 470 requests a second near a sellout.
+
+`loadtest/seat-poll.js`, on the same laptop, with 1,950 of the 2,000 seats sold, the largest answer. Each fan loads the full map once, arriving over the first 10 seconds, then polls every 2 to 3 seconds for 60 seconds:
+
+| Run | Requests/s | Poll p95 | Failed | Under 500 ms? |
+| --- | --- | --- | --- | --- |
+| 1,000 fans polling the full map | 185 | 4.3 s | 0 | No |
+| 1,000 fans polling the states, one row per seat | 345 | 1.02 s | 0 | No |
+| 1,000 fans polling the states, JSON from Postgres | 373 | **10.8 ms** | 0 | Yes |
+
+With no pauses, 50 virtual users sending requests back to back measure the most one process can serve:
+
+| Endpoint | Requests/s | p95 |
+| --- | --- | --- |
+| Full map | 197 | 360 ms |
+| States, one row per seat | 469 | 136 ms |
+| States, JSON from Postgres | **1,804** | 39 ms |
+
+**What follows:**
+- **The polls of 1,000 fans now take about a fifth of one API process,** where the full map needed twice what it could give.
+- **No cache was needed.** Every answer is current, every API process stays stateless (NFR-7), and FR-SEAT-1's `no-store` holds.
+- **The cost of a poll still grows with the seats taken,** since sold seats are listed; 1,950 sold is close to the worst case.
 
 ## Query plans
 
