@@ -13,9 +13,9 @@ Taquilla (Spanish for *box office*) is a booking API where thousands of simulate
 
 > **Status:** in development. Every number below was measured; see [Benchmarks](#benchmarks). The full specification lives in [requirements.md](requirements.md).
 
-![Demo: pick seats, watch the hold timer, double-click Pay, see one charge](docs/demo.gif)
+![Demo: the ground from above, the view from a seat, pick and hold two seats, double-click Pay, see one charge](docs/demo.gif)
 
-*Sixty seconds of the real web page, API and Postgres, with the mock payment provider slowed to 2.5–3.5 s so the paying step shows. The last frame is the provider's `payments.charges` table and `npm run audit`, run right after the double-click.*
+*Sixty seconds of the real web page, API and Postgres. Before the take, 380 fans bought 1,236 seats through the API, and a few more held seats during it. The mock payment provider is slowed to 2.5–3.5 s so the paying step shows. The last frame is the provider's `payments.charges` table and `npm run audit`, run right after the double-click.*
 
 ## Headline results
 
