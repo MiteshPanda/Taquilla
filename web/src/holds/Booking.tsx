@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import type { ApiClient, Hold, Seat } from '../api/client.js';
 import { ApiError } from '../api/errors.js';
+import type { PayOptions } from '../checkout/pay.js';
 import { SeatMap } from '../seats/SeatMap.js';
 import {
   describeSeats,
@@ -11,21 +12,10 @@ import {
 } from '../seats/seats.js';
 import type { SeatStateMap } from '../seats/seats.js';
 import { useSeatMap } from '../seats/useSeatMap.js';
-import { Countdown } from './Countdown.js';
+import { HoldPanel } from './HoldPanel.js';
+import { FULL, UNEXPECTED } from './messages.js';
+import type { Notice } from './messages.js';
 import { EMPTY_SELECTION, selectionReducer } from './selection.js';
-
-export const RELEASED = 'Released. Those seats are free again.';
-export const ALREADY_ENDED = 'That hold had already ended, so its seats are free again.';
-export const EXPIRED =
-  'Your hold expired, so its seats are free again. Pick seats to hold them again.';
-export const FULL = `You can hold up to ${MAX_HOLD_SEATS} seats at once.`;
-const UNEXPECTED = 'Something went wrong. Please try again.';
-
-interface Notice {
-  // An alert interrupts a screen reader; a status waits its turn.
-  role: 'alert' | 'status';
-  text: string;
-}
 
 // A hold belongs to the fan whose token made it, so another login or a logout hides it.
 interface OwnHold {
@@ -62,18 +52,26 @@ export interface BookingProps {
   token: string | null;
   // Picks the wait between seat-map polls; tests pass their own.
   random?: (() => number) | undefined;
-  // Makes each hold attempt's Idempotency-Key; tests pass their own.
+  // Makes each hold and payment attempt's Idempotency-Key; tests pass their own.
   newKey?: () => string;
+  // Waits between payment tries while the first is still running; tests pass their own.
+  wait?: PayOptions['wait'];
 }
 
 // The seat map and what the fan does with it: pick up to 6 seats, hold them, watch the hold count
-// down, and release it (FR-WEB-2, FR-WEB-5).
-export function Booking({ api, token, random, newKey = () => crypto.randomUUID() }: BookingProps) {
+// down, release it or pay for it (FR-WEB-2, FR-WEB-3, FR-WEB-5).
+export function Booking({
+  api,
+  token,
+  random,
+  newKey = () => crypto.randomUUID(),
+  wait,
+}: BookingProps) {
   const { map, refresh } = useSeatMap(api, EVENT_ID, random);
   const [selection, dispatch] = useReducer(selectionReducer, EMPTY_SELECTION);
   const [ownHold, setOwnHold] = useState<OwnHold | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
-  const [pending, setPending] = useState<'hold' | 'release' | null>(null);
+  const [pending, setPending] = useState(false);
   const attempt = useRef<Attempt | null>(null);
 
   // The latest seat states, for the seat click handler, which stays the same function so the
@@ -110,11 +108,11 @@ export function Booking({ api, token, random, newKey = () => crypto.randomUUID()
     });
   }, []);
 
-  const onExpire = useCallback(() => {
+  // The hold is over: expired, released, gone, or paid for and put away.
+  const onHoldEnd = useCallback((next: Notice | null) => {
     setOwnHold(null);
-    setNotice({ role: 'status', text: EXPIRED });
-    refresh();
-  }, [refresh]);
+    setNotice(next);
+  }, []);
 
   async function holdPicked() {
     if (token === null || picked.length === 0) return;
@@ -122,7 +120,7 @@ export function Booking({ api, token, random, newKey = () => crypto.randomUUID()
     if (attempt.current?.seats !== seats) attempt.current = { seats, key: newKey() };
     const { key } = attempt.current;
 
-    setPending('hold');
+    setPending(true);
     setNotice(null);
     try {
       const made = await api.holdSeats(EVENT_ID, picked, token, key);
@@ -140,33 +138,10 @@ export function Booking({ api, token, random, newKey = () => crypto.randomUUID()
         setNotice({ role: 'alert', text: err instanceof ApiError ? err.message : UNEXPECTED });
       }
     } finally {
-      setPending(null);
+      setPending(false);
       refresh();
     }
   }
-
-  async function release() {
-    if (token === null || hold === null) return;
-    setPending('release');
-    setNotice(null);
-    try {
-      await api.releaseHold(hold.holdId, token);
-      setOwnHold(null);
-      setNotice({ role: 'status', text: RELEASED });
-    } catch (err) {
-      if (err instanceof ApiError && err.code === 'NOT_FOUND') {
-        setOwnHold(null);
-        setNotice({ role: 'status', text: ALREADY_ENDED });
-      } else {
-        setNotice({ role: 'alert', text: err instanceof ApiError ? err.message : UNEXPECTED });
-      }
-    } finally {
-      setPending(null);
-      refresh();
-    }
-  }
-
-  const heldSeats = hold === null ? [] : seatsOf(hold.seatIds);
 
   return (
     <div className="booking">
@@ -183,18 +158,18 @@ export function Booking({ api, token, random, newKey = () => crypto.randomUUID()
             {notice.text}
           </p>
         )}
-        {hold !== null ? (
-          <>
-            <p>
-              You're holding {describeSeats(heldSeats)} · {formatPrice(hold.amountPaise)}
-            </p>
-            <Countdown key={hold.holdId} expiresAt={hold.expiresAt} onExpire={onExpire} />
-            <div className="actions">
-              <button type="button" onClick={() => void release()} disabled={pending !== null}>
-                {pending === 'release' ? 'Releasing…' : 'Release'}
-              </button>
-            </div>
-          </>
+        {hold !== null && token !== null ? (
+          <HoldPanel
+            key={hold.holdId}
+            api={api}
+            token={token}
+            hold={hold}
+            seats={seatsOf(hold.seatIds)}
+            newKey={newKey}
+            refresh={refresh}
+            onEnd={onHoldEnd}
+            wait={wait}
+          />
         ) : picked.length > 0 ? (
           <>
             <p>
@@ -206,17 +181,15 @@ export function Booking({ api, token, random, newKey = () => crypto.randomUUID()
               {token === null ? (
                 <p>Log in to hold them.</p>
               ) : (
-                <button type="button" onClick={() => void holdPicked()} disabled={pending !== null}>
-                  {pending === 'hold'
-                    ? 'Holding…'
-                    : `Hold ${plural(picked.length, 'seat', 'seats')}`}
+                <button type="button" onClick={() => void holdPicked()} disabled={pending}>
+                  {pending ? 'Holding…' : `Hold ${plural(picked.length, 'seat', 'seats')}`}
                 </button>
               )}
               <button
                 type="button"
                 className="secondary"
                 onClick={() => dispatch({ type: 'clear' })}
-                disabled={pending !== null}
+                disabled={pending}
               >
                 Clear
               </button>

@@ -26,6 +26,14 @@ import { createHoldsRouter } from '../src/holds/routes.js';
 import { createHoldStrategy } from '../src/holds/strategies.js';
 import { signToken } from '../src/auth/tokens.js';
 import { takenMessage } from '../../web/src/seats/seats.js';
+import { payHold } from '../../web/src/checkout/pay.js';
+import type { Pool } from 'pg';
+import type { Faults } from '../../payments-mock/src/faults.js';
+import { createTestSchema, startMock } from '../../payments-mock/test/helpers/mock.js';
+import type { RunningMock } from '../../payments-mock/test/helpers/mock.js';
+import { createCheckoutRouter } from '../src/checkout/routes.js';
+import { createPaymentClient } from '../src/checkout/payment-client.js';
+import type { PaymentClient } from '../src/checkout/payment-client.js';
 import { seedStadium } from '../../scripts/seed.js';
 import { schemaConnectionString } from './helpers/database.js';
 
@@ -39,6 +47,30 @@ const JWT_SECRET = 'test-secret-that-is-at-least-32-chars';
 const TOKEN_SECONDS = 3600;
 const logger = createLogger('silent');
 const db = createDatabase({ connectionString: CONNECTION_STRING, logger });
+const PAYMENTS_SCHEMA = 'web_client_payments';
+
+// The provider, through the real mock. Each key's first charge attempt takes 300 ms, so a second
+// click arrives while the first is still being paid.
+const provider = { decline: false };
+const faults: Faults = {
+  delay: () => new Promise((resolve) => setTimeout(resolve, 300)),
+  decline: () => provider.decline,
+  loseResponse: () => false,
+};
+let mockPool: Pool;
+let mock: RunningMock;
+let realPayments: PaymentClient | undefined;
+// The routes are built before the mock starts, so this hands calls on to it.
+const payments: PaymentClient = {
+  charge: (charge, context) => {
+    if (realPayments === undefined) throw new Error('The payment mock is not running.');
+    return realPayments.charge(charge, context);
+  },
+  refund: (key, context) => {
+    if (realPayments === undefined) throw new Error('The payment mock is not running.');
+    return realPayments.refund(key, context);
+  },
+};
 
 const routes = Router();
 routes.use(createHealthRouter({ ping: () => Promise.resolve() }));
@@ -54,6 +86,7 @@ routes.use(
     config: { JWT_SECRET },
   }),
 );
+routes.use(createCheckoutRouter({ db, payments, config: { JWT_SECRET } }));
 routes.get('/test/me', requireAuth(JWT_SECRET), (req, res) => {
   res.json({ userId: userIdOf(req) });
 });
@@ -83,6 +116,9 @@ beforeAll(async () => {
   await db.pool.query(`CREATE SCHEMA ${SCHEMA}`);
   await runMigrations({ connectionString: CONNECTION_STRING, logger, production: true });
   await db.withTransaction((client) => seedStadium(client, 'not-a-real-hash'));
+  mockPool = await createTestSchema(PAYMENTS_SCHEMA);
+  mock = await startMock(mockPool, faults);
+  realPayments = createPaymentClient({ baseUrl: mock.url, logger, wait: () => Promise.resolve() });
 
   const app = createApp({ config: { CORS_ORIGINS: [WEB_ORIGIN] }, logger, routes });
   server = app.listen(0, '127.0.0.1');
@@ -95,6 +131,9 @@ beforeAll(async () => {
 afterAll(async () => {
   server.close();
   await once(server, 'close');
+  await mock.close();
+  await mockPool.query(`DROP SCHEMA IF EXISTS ${PAYMENTS_SCHEMA} CASCADE`);
+  await mockPool.end();
   await db.pool.query(`DROP SCHEMA IF EXISTS ${SCHEMA} CASCADE`);
   await db.close();
 });
@@ -291,5 +330,54 @@ describe('the web client against the real holds routes', () => {
       code: 'NOT_FOUND',
     });
     await api.releaseHold(hold.holdId, fanOne());
+  });
+});
+
+describe('the web client against the real checkout and payment provider', () => {
+  const fan = () => signToken(1, JWT_SECRET, TOKEN_SECONDS);
+  const shortWait = () => new Promise<void>((resolve) => setTimeout(resolve, 50));
+
+  async function charges(): Promise<string[]> {
+    const { rows } = await mockPool.query<{ status: string }>(
+      'SELECT status FROM charges ORDER BY created_at',
+    );
+    return rows.map((row) => row.status);
+  }
+
+  it('charges a double-clicked Pay once, and both clicks end with the same paid order', async () => {
+    const hold = await api.holdSeats(1, [13, 14], fan(), 'checkout-hold');
+    const before = (await charges()).length;
+
+    // Two clicks, one key, at once: the second waits out 409 REQUEST_IN_PROGRESS.
+    const [first, second] = await Promise.all([
+      payHold(api, hold.holdId, fan(), 'pay-once', { wait: shortWait }),
+      payHold(api, hold.holdId, fan(), 'pay-once', { wait: shortWait }),
+    ]);
+
+    expect(second).toEqual(first);
+    expect(first).toMatchObject({
+      holdId: hold.holdId,
+      status: 'paid',
+      amountPaise: 900_000,
+      tickets: [{ seatId: 13 }, { seatId: 14 }],
+    });
+    expect((await charges()).slice(before)).toEqual(['succeeded']);
+    expect((await api.seatStates(1)).sold).toEqual(expect.arrayContaining([13, 14]) as unknown);
+  });
+
+  it('pays under a new key after a decline, with one successful charge', async () => {
+    const hold = await api.holdSeats(1, [15], fan(), 'decline-hold');
+    const before = (await charges()).length;
+
+    provider.decline = true;
+    await expect(payHold(api, hold.holdId, fan(), 'pay-declined')).rejects.toMatchObject({
+      status: 402,
+      code: 'PAYMENT_DECLINED',
+    });
+    provider.decline = false;
+    const paid = await payHold(api, hold.holdId, fan(), 'pay-again');
+
+    expect(paid.status).toBe('paid');
+    expect((await charges()).slice(before)).toEqual(['declined', 'succeeded']);
   });
 });

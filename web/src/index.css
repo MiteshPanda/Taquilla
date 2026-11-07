@@ -321,3 +321,25 @@ button:disabled {
   clip-path: inset(50%);
   white-space: nowrap;
 }
+
+.payment {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed GrayText;
+}
+
+.paid {
+  font-weight: 700;
+  color: var(--seat-available);
+}
+
+.tickets {
+  margin: 0 0 0.5rem;
+  padding-left: 1.25rem;
+}
+
+.order-id {
+  color: GrayText;
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
