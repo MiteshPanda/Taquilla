@@ -1,254 +1,845 @@
+/* A night match under floodlights. The plan of the ground is the one bold thing on the page; the
+   box office beside it stays quiet: flat panels, one radius scale, one pair of buttons. Gold is
+   the fan's own colour (their picks, their seats, their next step), so it's used for nothing else. */
+
 :root {
-  color-scheme: light dark;
-  font-family: system-ui, sans-serif;
+  color-scheme: dark;
+  --night: #0d1b2e;
+  --night-deep: #091524;
+  --panel: #13263e;
+  --panel-raised: #1a3150;
+  --line: rgb(214 228 245 / 13%);
+  --line-strong: rgb(214 228 245 / 28%);
+  --ink: #eef2f6;
+  --muted: #9db0c6;
+  --gold: #ffc23d;
+  --gold-ink: #0d1b2e;
+  --turf: #2b7a46;
+  --turf-light: #33894f;
+  --alert: #ff9b8a;
+  --ok: #6fd69a;
+  --seat-open: #79a6e0;
+  --seat-held: #f0a04b;
+  --seat-sold: #c2593b;
+
+  --r-sm: 6px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --masthead: 64px;
+  --seat: 20px;
+  --seat-gap: 3px;
+  --font: 'Archivo Variable', 'Archivo', system-ui, sans-serif;
+
+  font-family: var(--font);
+  font-size: 16px;
   line-height: 1.5;
+  color: var(--ink);
+  background: var(--night);
+}
+
+/* Condensed and heavy, as on a stadium's signs. */
+.match h2,
+.masthead h1,
+.auth h2,
+.stand-tab-name,
+.stub-figure,
+.countdown [role='timer'],
+.seat-view figcaption strong {
+  font-stretch: 72%;
+  font-weight: 800;
+  letter-spacing: -0.005em;
+  line-height: 1.05;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  background: var(--night);
 }
 
-main {
-  max-width: 60rem;
-  margin: 0 auto;
-  padding: 1.5rem 1rem;
+p {
+  margin: 0;
 }
 
-/* The status reads in words as well as colour, so the colour is never the only signal. */
-.api-status::before {
-  content: '';
-  display: inline-block;
-  width: 0.6em;
-  height: 0.6em;
-  margin-right: 0.5em;
-  border-radius: 50%;
-  background: currentColor;
-}
-
-.api-status-checking {
-  color: GrayText;
-}
-
-.api-status-up {
-  color: light-dark(#13702f, #5fd17d);
-}
-
-.api-status-down {
-  color: light-dark(#b42318, #ff8a7a);
-}
+/* The masthead */
 
 .masthead {
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.5rem 1rem;
+  gap: 8px 24px;
+  min-height: var(--masthead);
+  padding: 8px 32px;
+  border-bottom: 1px solid var(--line);
+  background: var(--night-deep);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.mark {
+  width: 22px;
+  height: 28px;
+  flex: none;
+}
+
+.mark-bowl {
+  fill: none;
+  stroke: var(--gold);
+  stroke-width: 2;
+}
+
+.mark-pitch {
+  fill: var(--turf-light);
+}
+
+.mark-line {
+  stroke: var(--ink);
+  stroke-width: 1;
 }
 
 .masthead h1 {
   margin: 0;
+  font-size: 26px;
+}
+
+.tagline {
+  color: var(--muted);
+  font-size: 14px;
 }
 
 .account {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 0.75rem;
+  gap: 8px 16px;
+  color: var(--muted);
+  font-size: 14px;
 }
 
-.auth {
-  max-width: 24rem;
-}
-
-.auth fieldset {
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.field {
-  margin-bottom: 1rem;
-}
-
-.field label {
-  display: block;
+.account strong {
+  color: var(--ink);
   font-weight: 600;
 }
 
-.field input {
-  box-sizing: border-box;
-  width: 100%;
-  padding: 0.5rem;
-  font: inherit;
+/* The page: the ground on the left, the box office on the right */
+
+.seat-map {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 41rem;
+  gap: 32px;
+  max-width: 1640px;
+  margin: 0 auto;
+  padding: 16px 32px 0;
 }
 
-.field input[aria-invalid='true'] {
-  border: 2px solid light-dark(#b42318, #ff8a7a);
+.ground {
+  position: sticky;
+  top: calc(var(--masthead) + 16px);
+  display: grid;
+  place-items: center;
+  height: calc(100dvh - var(--masthead) - 32px);
+  background: radial-gradient(closest-side, rgb(90 130 185 / 14%), transparent);
 }
 
-.field-error,
-.form-error {
-  margin: 0.25rem 0 0;
-  color: light-dark(#b42318, #ff8a7a);
+.ground-frame {
+  position: relative;
+  width: min(100%, calc((100dvh - var(--masthead) - 32px) * 0.7964));
 }
 
-.form-error {
-  margin-bottom: 1rem;
-}
-
-.notice {
-  padding: 0.5rem 0.75rem;
-  border-left: 4px solid currentColor;
-}
-
-.actions {
+.side {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 20px;
+  min-width: 0;
+  padding-bottom: 24px;
 }
+
+.match h2 {
+  margin: 0;
+  font-size: clamp(32px, 2.6vw, 44px);
+}
+
+.kick-off {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.map-loading {
+  color: var(--muted);
+}
+
+/* The plan of the ground */
+
+.ground-plan {
+  display: block;
+  width: 100%;
+  height: auto;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.g-roof {
+  fill: #0a1525;
+  stroke: rgb(120 150 190 / 22%);
+  stroke-width: 0.4;
+}
+
+.g-truss {
+  fill: none;
+  stroke: rgb(120 150 190 / 16%);
+  stroke-width: 0.35;
+}
+
+.g-bowl {
+  fill: #0f1f34;
+}
+
+.g-stand {
+  fill: #132a45;
+}
+
+.g-open {
+  fill: #3f6fae;
+}
+
+.g-held {
+  fill: var(--seat-held);
+}
+
+.g-picked {
+  fill: var(--gold);
+}
+
+.g-crowd-0 {
+  fill: #c75b3c;
+}
+
+.g-crowd-1 {
+  fill: #a9462f;
+}
+
+.g-crowd-2 {
+  fill: #dd7a4f;
+}
+
+.g-crowd-3 {
+  fill: #e6ded2;
+}
+
+.g-flood {
+  fill: #f6f8ff;
+}
+
+.g-apron {
+  fill: #1c5434;
+}
+
+.g-boards {
+  fill: none;
+  stroke: #2f6fd6;
+  stroke-width: 0.9;
+}
+
+.g-pitch {
+  fill: var(--turf);
+}
+
+.g-stripe {
+  fill: var(--turf-light);
+}
+
+.g-line {
+  fill: none;
+  stroke: rgb(244 247 242 / 85%);
+  stroke-width: 0.3;
+}
+
+.g-spot {
+  fill: rgb(244 247 242 / 85%);
+}
+
+.g-goal {
+  fill: rgb(244 247 242 / 18%);
+  stroke: rgb(244 247 242 / 85%);
+  stroke-width: 0.25;
+}
+
+.g-label {
+  fill: #8ea3bd;
+  font-size: 3.4px;
+  font-stretch: 75%;
+  font-weight: 700;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.g-active {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 0.5;
+  stroke-dasharray: 1.6 1;
+}
+
+.g-sightline {
+  stroke: var(--gold);
+  stroke-width: 0.35;
+  stroke-dasharray: 1.2 1.2;
+}
+
+.g-pointed {
+  fill: none;
+  stroke: var(--ink);
+  stroke-width: 0.5;
+}
+
+.g-lift-shadow {
+  fill: rgb(0 0 0 / 60%);
+}
+
+/* A picked or held seat rises out of its stand. */
+.g-lift {
+  transform: translateY(-1.8px);
+  animation: lift 280ms var(--ease) both;
+}
+
+.g-lift rect {
+  fill: var(--gold);
+  stroke: #fff2cc;
+  stroke-width: 0.3;
+}
+
+@keyframes lift {
+  from {
+    transform: translateY(0);
+  }
+}
+
+/* The seat whose view is shown carries its name on a tag. */
+.g-tag line {
+  stroke: var(--gold);
+  stroke-width: 0.4;
+}
+
+.g-tag rect {
+  fill: var(--gold);
+}
+
+.g-tag text {
+  fill: var(--gold-ink);
+  font-size: 3.8px;
+  font-stretch: 72%;
+  font-weight: 800;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.g-tag-rise {
+  transform-box: fill-box;
+  transform-origin: 50% 100%;
+  animation: tag-rise 240ms var(--ease) both;
+}
+
+@keyframes tag-rise {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.7);
+  }
+}
+
+.ground-hint {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 34%;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: rgb(9 21 36 / 72%);
+  color: var(--ink);
+  font-size: 14px;
+  text-align: center;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+/* The view from a seat, held over the pitch */
+
+.seat-view {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 46%;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--panel);
+  box-shadow:
+    0 0 0 1px rgb(214 228 245 / 16%),
+    0 24px 48px rgb(3 8 16 / 60%);
+  transform: translate(-50%, -50%);
+  animation: view-in 220ms var(--ease) both;
+  pointer-events: none;
+}
+
+@keyframes view-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -46%) scale(0.96);
+  }
+}
+
+.seat-view-picture {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 16 / 10;
+}
+
+.seat-view figcaption {
+  display: grid;
+  gap: 2px;
+  padding: 10px 14px 12px;
+}
+
+.seat-view figcaption strong {
+  font-size: 19px;
+}
+
+.seat-view figcaption span {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.v-stand {
+  fill: #10213a;
+}
+
+.v-wall {
+  fill: #0c1a2d;
+}
+
+.v-roof {
+  fill: #08121f;
+}
+
+.v-fascia {
+  fill: #1b2c45;
+}
+
+.v-corner {
+  fill: #0e1d31;
+}
+
+.v-seat-open {
+  fill: #34619e;
+}
+
+.v-seat-open-alt {
+  fill: #3d6dad;
+}
+
+.v-seat-held {
+  fill: #d98f35;
+}
+
+.v-seat-picked {
+  fill: var(--gold);
+}
+
+.v-crowd-0 {
+  fill: #b9553a;
+}
+
+.v-crowd-1 {
+  fill: #95412d;
+}
+
+.v-crowd-2 {
+  fill: #cf7149;
+}
+
+.v-crowd-3 {
+  fill: #d9d1c4;
+}
+
+.v-apron {
+  fill: #1a5032;
+}
+
+.v-pitch {
+  fill: #2a7745;
+}
+
+.v-stripe {
+  fill: #31854e;
+}
+
+.v-board {
+  fill: #1f4fa5;
+}
+
+.v-board-edge {
+  fill: none;
+  stroke: #6f9cf0;
+}
+
+.v-near-stand {
+  fill: #15263d;
+}
+
+.v-near-seat {
+  fill: #2d5288;
+}
+
+.v-near-crowd {
+  fill: #5b3a32;
+}
+
+.v-near-crowd-alt {
+  fill: #3a4256;
+}
+
+.v-line {
+  fill: none;
+  stroke: rgb(240 244 238 / 88%);
+  stroke-linecap: round;
+}
+
+.v-spot {
+  fill: rgb(240 244 238 / 88%);
+}
+
+.v-net {
+  fill: none;
+  stroke: rgb(240 244 238 / 40%);
+}
+
+.v-light {
+  fill: none;
+  stroke: #f4f8ff;
+  stroke-linecap: round;
+}
+
+/* Buttons: one filled, one outlined. Seats and stand tabs are buttons with their own look. */
 
 button {
-  padding: 0.5rem 1rem;
   font: inherit;
   cursor: pointer;
+}
+
+button:not(.seat, .stand-tab, .link) {
+  min-height: 44px;
+  padding: 0 20px;
+  border: 1px solid var(--gold);
+  border-radius: var(--r-md);
+  background: var(--gold);
+  color: var(--gold-ink);
+  font-weight: 650;
+  transition:
+    transform 200ms var(--ease),
+    background-color 200ms var(--ease),
+    border-color 200ms var(--ease);
+}
+
+button.secondary {
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--ink);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  button:not(.seat, .stand-tab, .link):hover:enabled {
+    background: color-mix(in srgb, var(--gold) 86%, var(--ink));
+    transform: translateY(-1px);
+    transition-duration: 140ms;
+  }
+
+  button.secondary:hover:enabled {
+    border-color: var(--ink);
+    background: rgb(214 228 245 / 8%);
+  }
+}
+
+button:not(.seat, .stand-tab, .link):active:enabled {
+  transform: translateY(1px) scale(0.985);
+  transition-duration: 90ms;
+}
+
+button:disabled {
+  cursor: progress;
+  opacity: 0.6;
+}
+
+button:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 2px;
 }
 
 button.link {
   padding: 0;
   border: 0;
   background: none;
-  color: LinkText;
+  color: var(--ink);
+  font-weight: 600;
   text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
 }
 
-button:disabled {
-  cursor: progress;
+button.link:hover {
+  text-decoration-color: var(--ink);
 }
 
-/* Seats: each state differs in pattern or symbol as well as colour (FR-WEB-1), so it reads in
-   greyscale, to colour-blind fans, and in forced-colours mode, where backgrounds are dropped. */
-:root {
-  --seat-available: light-dark(#13702f, #5fd17d);
-  --seat-held: light-dark(#a15c00, #f0b45a);
-  --seat-yours: light-dark(#1d4ed8, #7aa2ff);
-  --seat-sold: light-dark(#5b5b5b, #8f8f8f);
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
-.seat-map h2 {
-  margin-bottom: 0;
+/* Logging in */
+
+.auth {
+  padding: 18px 20px 20px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
 }
 
-.kick-off {
-  margin-top: 0.25rem;
+.auth h2 {
+  margin: 0 0 14px;
+  font-size: 26px;
+}
+
+.auth fieldset {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px 12px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.auth .form-error,
+.auth .actions,
+.auth .switch {
+  grid-column: 1 / -1;
+}
+
+.field label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.field input {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm);
+  background: var(--night);
+  color: var(--ink);
+  font: inherit;
+  transition:
+    border-color 140ms var(--ease),
+    box-shadow 140ms var(--ease);
+}
+
+.field input:focus-visible {
+  border-color: var(--gold);
+  outline: none;
+  box-shadow: 0 0 0 3px rgb(255 194 61 / 25%);
+}
+
+.field input[aria-invalid='true'] {
+  border-color: var(--alert);
+}
+
+.field-error,
+.form-error {
+  margin-top: 6px;
+  color: var(--alert);
+  font-size: 14px;
+}
+
+.form-error {
+  margin-top: 0;
+}
+
+.notice {
+  margin-bottom: 14px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--gold);
+  background: rgb(255 194 61 / 8%);
+}
+
+.switch {
+  color: var(--muted);
+  font-size: 14px;
+}
+
+/* The stands */
+
+.stands {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.refresh-error {
+  padding: 8px 12px;
+  border-left: 3px solid var(--seat-held);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: rgb(240 160 75 / 10%);
+}
+
+.stand-tabs {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.stand-tab {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas:
+    'glyph name'
+    'glyph price'
+    'glyph left';
+  align-items: center;
+  column-gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: var(--panel);
+  color: var(--ink);
+  text-align: left;
+  transition:
+    border-color 200ms var(--ease),
+    background-color 200ms var(--ease);
+}
+
+.stand-tab:hover {
+  border-color: var(--line-strong);
+}
+
+.stand-tab[aria-selected='true'] {
+  border-color: var(--ink);
+  background: var(--panel-raised);
+}
+
+.stand-glyph {
+  grid-area: glyph;
+  width: 22px;
+  height: 28px;
+}
+
+.stand-glyph-bowl {
+  fill: none;
+  stroke: var(--line-strong);
+}
+
+.stand-glyph-pitch {
+  fill: var(--turf);
+}
+
+.stand-glyph-lit {
+  fill: var(--muted);
+}
+
+.stand-tab[aria-selected='true'] .stand-glyph-lit {
+  fill: var(--ink);
+}
+
+.stand-tab-name {
+  grid-area: name;
+  font-size: 18px;
+}
+
+.stand-tab-price {
+  grid-area: price;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stand-tab-left {
+  grid-area: left;
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
 }
 
 .legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.5rem 1.25rem;
+  gap: 6px 18px;
+  margin: 0;
   padding: 0;
+  color: var(--muted);
+  font-size: 13px;
   list-style: none;
 }
 
 .legend li {
   display: flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: 6px;
 }
 
-.seat {
-  box-sizing: border-box;
-  display: inline-grid;
-  flex: none;
-  place-items: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  padding: 0;
-  border: 2px solid var(--seat-available);
-  border-radius: 0.45rem 0.45rem 0.2rem 0.2rem;
-  background: none;
-  font:
-    700 1rem/1 system-ui,
-    sans-serif;
-  color: Canvas;
-  cursor: pointer;
-}
-
-.legend .seat {
-  width: 1.25rem;
-  height: 1.25rem;
-  font-size: 0.75rem;
-  cursor: default;
-}
-
-.seat-available:hover {
-  background: color-mix(in srgb, var(--seat-available) 25%, transparent);
-}
-
-/* Someone else's hold: stripes and a dashed edge, which survives forced colours. */
-.seat-held {
-  border-style: dashed;
-  border-color: var(--seat-held);
-  background: repeating-linear-gradient(45deg, var(--seat-held) 0 2px, transparent 2px 6px);
-  cursor: not-allowed;
-}
-
-.seat-yours {
-  border-color: var(--seat-yours);
-  background: var(--seat-yours);
-}
-
-.seat-yours::after {
-  content: '✓';
-}
-
-.seat-sold {
-  border-color: var(--seat-sold);
-  background: var(--seat-sold);
-  cursor: not-allowed;
-}
-
-.seat-sold::after {
-  content: '×';
-}
-
-.seat:focus-visible {
-  outline: 3px solid Highlight;
-  outline-offset: 2px;
-}
-
-@media (forced-colors: active) {
-  .seat-yours::after,
-  .seat-sold::after {
-    color: CanvasText;
-  }
-}
-
-.stand h3 {
-  margin-bottom: 0;
-}
-
-.stand-summary {
-  margin-top: 0.25rem;
-  color: GrayText;
+.stand {
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: var(--panel);
 }
 
 /* A stand is 25 seats wide; on a phone it scrolls sideways inside its own box, not the page. */
 .stand-scroll {
+  display: grid;
+  grid-template-columns: max-content;
   overflow-x: auto;
-  padding: 0.25rem 0.25rem 0.5rem 0;
+  padding-bottom: 4px;
+}
+
+.pitch-edge {
+  margin: 0 0 10px calc(22px + var(--seat-gap));
+  padding: 3px 0;
+  border-radius: var(--r-sm) var(--r-sm) 2px 2px;
+  background: repeating-linear-gradient(90deg, var(--turf) 0 24px, var(--turf-light) 24px 48px);
+  color: rgb(244 247 242 / 92%);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
 }
 
 .stand-grid {
-  display: inline-flex;
+  display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: var(--seat-gap);
 }
 
 .seat-row {
   display: flex;
   align-items: center;
-  gap: 0.2rem;
+  gap: var(--seat-gap);
 }
 
 .seat-row > [role='gridcell'] {
@@ -260,56 +851,236 @@ button:disabled {
   left: 0;
   z-index: 1;
   flex: none;
-  width: 1.5rem;
-  background: Canvas;
-  font-size: 0.8rem;
+  width: 22px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 13px;
   text-align: center;
 }
 
-.refresh-error {
-  padding: 0.5rem 0.75rem;
-  border-left: 4px solid var(--seat-held);
+/* Seats: each state differs in pattern or symbol as well as colour (FR-WEB-1), so it reads in
+   greyscale, to colour-blind fans, and in forced-colours mode, where backgrounds are dropped. */
+.seat {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: var(--seat);
+  height: var(--seat);
+  padding: 0;
+  border: 2px solid var(--seat-open);
+  border-radius: 6px 6px 3px 3px;
+  background: rgb(121 166 224 / 10%);
+  color: var(--gold-ink);
+  font:
+    800 13px/1 system-ui,
+    sans-serif;
+  cursor: pointer;
+  transition: background-color 140ms var(--ease);
 }
 
-/* Picked but not yet held: a thick outline in the "yours" colour and a dot, not colour alone. */
+.legend .seat {
+  --seat: 14px;
+  border-width: 2px;
+  font-size: 10px;
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .seat-available:hover {
+    background: rgb(121 166 224 / 38%);
+  }
+}
+
+/* Picked but not yet held: the gold edge and a dot, not colour alone. */
 .seat-selected {
-  border-width: 3px;
-  border-color: var(--seat-yours);
-  color: var(--seat-yours);
+  border-color: var(--gold);
+  background: rgb(255 194 61 / 16%);
+  color: var(--gold);
 }
 
 .seat-selected::after {
   content: '•';
 }
 
+.seat-yours {
+  border-color: var(--gold);
+  background: var(--gold);
+}
+
+.seat-yours::after {
+  content: '✓';
+}
+
+/* Someone else's hold: stripes and a dashed edge, which survives forced colours. */
+.seat-held {
+  border-style: dashed;
+  border-color: var(--seat-held);
+  background: repeating-linear-gradient(45deg, var(--seat-held) 0 2px, transparent 2px 6px);
+  cursor: not-allowed;
+}
+
+.seat-sold {
+  border-color: var(--seat-sold);
+  background: var(--seat-sold);
+  color: rgb(255 255 255 / 88%);
+  cursor: not-allowed;
+}
+
+.seat-sold::after {
+  content: '×';
+}
+
 .seat[aria-disabled='true'] {
   cursor: not-allowed;
 }
 
-/* The picks and the hold stay in reach at the bottom of the screen while the map scrolls. */
-.hold-bar {
-  position: sticky;
-  bottom: 0;
-  z-index: 2;
-  margin-top: 1rem;
-  padding: 0.75rem 1rem;
-  border-top: 2px solid var(--seat-yours);
-  background: Canvas;
-  box-shadow: 0 -0.25rem 0.75rem light-dark(#0002, #0008);
+/* White, not gold: a gold ring would read as a pick. */
+.seat:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
 }
 
-.hold-bar p {
-  margin: 0 0 0.5rem;
+@media (forced-colors: active) {
+  .seat-yours::after,
+  .seat-sold::after {
+    color: CanvasText;
+  }
+}
+
+/* The fan's seats: a ticket stub that stays in reach at the bottom while the stand scrolls */
+
+.hold-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px 18px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-lg);
+  background: var(--panel-raised);
+  box-shadow: 0 -10px 30px rgb(5 12 22 / 70%);
+}
+
+.stub-line {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+/* The price sits on the stub's tear-off. */
+.stub-figure {
+  align-self: stretch;
+  display: grid;
+  place-items: center end;
+  padding-left: 16px;
+  border-left: 2px dashed var(--line-strong);
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+}
+
+.stub-empty,
+.stub-login,
+.test-payment {
+  color: var(--muted);
 }
 
 .hold-notice-alert {
-  color: light-dark(#b42318, #ff8a7a);
+  color: var(--alert);
   font-weight: 600;
 }
 
+.countdown {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: var(--muted);
+}
+
 .countdown [role='timer'] {
+  color: var(--gold);
+  font-size: 30px;
   font-variant-numeric: tabular-nums;
+}
+
+.paying {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+.payment {
+  display: grid;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 2px dashed var(--line-strong);
+}
+
+.paid {
+  color: var(--ok);
   font-weight: 700;
+}
+
+.tickets {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ticket {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border-left: 3px solid var(--gold);
+  border-radius: var(--r-sm);
+  background: rgb(214 228 245 / 6%);
+}
+
+.ticket-stand {
+  font-weight: 600;
+}
+
+.ticket-seat {
+  color: var(--muted);
+}
+
+.ticket-price {
+  font-variant-numeric: tabular-nums;
+}
+
+.order-id {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+/* Whether the API answers. The status reads in words as well as colour. */
+.api-status {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.api-status::before {
+  content: '';
+  display: inline-block;
+  width: 0.6em;
+  height: 0.6em;
+  margin-right: 0.5em;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.api-status-up::before {
+  background: var(--ok);
+}
+
+.api-status-down {
+  color: var(--alert);
 }
 
 /* Read by screen readers, not shown. */
@@ -322,24 +1093,64 @@ button:disabled {
   white-space: nowrap;
 }
 
-.payment {
-  margin-top: 0.5rem;
-  padding-top: 0.5rem;
-  border-top: 1px dashed GrayText;
+/* One column: the ground on top, the box office under it, the view under the plan. */
+@media (max-width: 1179px) {
+  .seat-map {
+    grid-template-columns: minmax(0, 1fr);
+    max-width: 760px;
+    padding: 12px 16px 0;
+  }
+
+  .ground {
+    position: static;
+    height: auto;
+  }
+
+  .ground-frame {
+    width: min(100%, calc(64dvh * 0.7964));
+  }
+
+  .seat-view,
+  .ground-hint {
+    position: static;
+    width: auto;
+    margin-top: 12px;
+    transform: none;
+    animation: none;
+  }
+
+  .g-sightline {
+    display: none;
+  }
 }
 
-.paid {
-  font-weight: 700;
-  color: var(--seat-available);
+@media (max-width: 640px) {
+  .masthead {
+    padding: 8px 16px;
+  }
+
+  .tagline {
+    display: none;
+  }
+
+  .stand-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .auth fieldset {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .actions button {
+    flex: 1 1 auto;
+  }
 }
 
-.tickets {
-  margin: 0 0 0.5rem;
-  padding-left: 1.25rem;
-}
-
-.order-id {
-  color: GrayText;
-  font-size: 0.85rem;
-  overflow-wrap: anywhere;
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

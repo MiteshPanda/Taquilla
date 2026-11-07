@@ -10,36 +10,56 @@ export interface AppProps {
   random?: () => number;
 }
 
+// Taquilla's mark: the ground from above, the pitch inside the bowl.
+function Mark() {
+  return (
+    <svg className="mark" viewBox="0 0 24 30" aria-hidden="true">
+      <rect x={1} y={1} width={22} height={28} rx={7} className="mark-bowl" />
+      <rect x={7} y={7} width={10} height={16} rx={0.5} className="mark-pitch" />
+      <path d="M7 15h10" className="mark-line" />
+    </svg>
+  );
+}
+
 export function App({ services: { api, session, config }, random }: AppProps) {
   const { session: current, notice } = useSyncExternalStore(session.subscribe, session.getState);
 
   return (
     <main>
       <header className="masthead">
-        <h1>Taquilla</h1>
+        <div className="brand">
+          <Mark />
+          <h1>Taquilla</h1>
+          <p className="tagline">Match tickets that can't be sold twice.</p>
+        </div>
         {current && (
           <div className="account">
             <span>
               Logged in as <strong>{current.email}</strong>
             </span>
-            <button type="button" onClick={session.logOut}>
+            <button type="button" className="secondary" onClick={session.logOut}>
               Log out
             </button>
           </div>
         )}
       </header>
-      <p>Match tickets that can't be sold twice.</p>
-      {!current && (
-        <AuthPage
-          api={api}
-          session={session}
-          notice={notice}
-          demoPassword={config.demoPassword}
-          random={random}
-        />
-      )}
-      <Booking api={api} token={current?.token ?? null} random={random} />
-      <ApiStatus api={api} apiUrl={config.apiUrl} />
+      <Booking
+        api={api}
+        token={current?.token ?? null}
+        random={random}
+        intro={
+          current ? null : (
+            <AuthPage
+              api={api}
+              session={session}
+              notice={notice}
+              demoPassword={config.demoPassword}
+              random={random}
+            />
+          )
+        }
+        footer={<ApiStatus api={api} apiUrl={config.apiUrl} />}
+      />
     </main>
   );
 }
