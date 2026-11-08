@@ -1,6 +1,6 @@
 # Taquilla: Requirements Specification
 
-**Version** 0.2 (draft) · **Date** 2 November 2026 · **Author** Mitesh Panda · **Status** In development
+**Version** 1.0 · **Date** 8 November 2026 · **Author** Mitesh Panda · **Status** Complete: v1 is delivered and runs at https://taquilla-omega.vercel.app
 
 The keywords **MUST**, **SHOULD** and **MAY** follow [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119). Requirement IDs are stable; reference them in tests, commits and pull requests.
 
@@ -470,3 +470,4 @@ All tunables MUST come from environment variables, with these defaults in `.env.
 | 0.36 | 7 Nov 2026 | CI hardening (WP 8.2): the verification row for NFR-12 names the jobs, including the stack built from its images, the k6 smoke test and the audit |
 | 0.37 | 7 Nov 2026 | The OpenAPI spec (WP 8.3): its verification row, its lint in the NFR-12 row, and its tools in §8.3 |
 | 0.38 | 7 Nov 2026 | The live demo (WP 8.4): `SWEEPER_IN_PROCESS`, `PAYMENTS_IN_PROCESS` and `TRUST_PROXY` in §8.4, and the verification row for the hosted demo's process |
+| 1.0 | 8 Nov 2026 | v1 complete (WP 8.5): the header's version and status, after the live demo and a cold run of the README |
