@@ -11,7 +11,9 @@
 
 Taquilla (Spanish for *box office*) is a booking API where thousands of simulated fans fight for the same seats at a fictional stadium. Row locks decide every race, a partial unique index makes a second valid ticket for a seat impossible to store, and idempotency keys make sure a double-clicked **Pay** charges exactly once.
 
-> **Status:** in development. Every number below was measured; see [Benchmarks](#benchmarks). The full specification lives in [requirements.md](requirements.md).
+> **Status:** v1 is complete. **[Book a seat on the live demo](https://taquilla-omega.vercel.app)**, or read the write-up, **[I tried to oversell a stadium](docs/i-tried-to-oversell-a-stadium.md)**.
+>
+> Every number below was measured; see [Benchmarks](#benchmarks). The full specification is in [requirements.md](requirements.md), and the API contract in [docs/openapi.yaml](docs/openapi.yaml).
 
 ![Demo: the ground from above, the view from a seat, pick and hold two seats, double-click Pay, see one charge](docs/demo.gif)
 
@@ -231,13 +233,13 @@ To run only the database, use `docker compose up -d postgres`. It creates `taqui
 - **The web image:**
   - **Baked in:** `VITE_API_URL` and `VITE_DEMO_PASSWORD` come from `.env` as build arguments, so a change needs `docker compose up -d --build web`.
   - **Caching:** nginx caches the fingerprinted assets for a year, has the browser check `index.html` every time, and gzips text.
-  - **Security headers:** a Content Security Policy lets the page run only its own scripts and styles, and call only itself and the API's origin. That limits what an injected script could do with the token in `sessionStorage` (ADR 5).
+  - **Security headers:** a Content Security Policy lets the page run only its own scripts and styles, and call only itself and the API's origin. That limits what an injected script could do with the token in `sessionStorage` ([ADR 5](docs/adr/0005-session-token-in-sessionstorage.md)).
 - **Developing the page:** `npm run web` serves it from source on http://localhost:5173, against the API in Docker, which allows both origins.
 - **Quiet logs:** Docker's health checks run every 10 seconds, so the API and the mock log a passing one at `debug`. A failing one is still an error.
 
 ### Live demo
 
-The demo can run on free tiers: Postgres on Neon, the API on Render and the page on Vercel. [docs/deploy.md](docs/deploy.md) has every step, and `render.yaml` and `web/vercel.json` hold the settings that aren't secret.
+The demo runs on free tiers at **https://taquilla-omega.vercel.app**: Postgres on Neon, the API on Render (https://taquilla-api.onrender.com) and the page on Vercel. Press **Log in as demo fan** to book a seat. After about 15 idle minutes the API sleeps, and the first visit takes up to a minute while it wakes. [docs/deploy.md](docs/deploy.md) has every step to deploy your own, and `render.yaml` and `web/vercel.json` hold the settings that aren't secret.
 
 - **One process on Render:** a free Render service sleeps when idle, and a sleeping payment provider would time out the API's charges. So there the API runs the payment mock and the sweeper in its own process (`PAYMENTS_IN_PROCESS`, `SWEEPER_IN_PROCESS`).
 - **Every start** migrates and seeds an empty database.
@@ -746,6 +748,7 @@ taquilla/
 │   ├── adr/                 # architecture decision records
 │   ├── benchmarks.md        # results, CPU profile, tuning and query plans
 │   ├── deploy.md            # the live demo on Neon, Render and Vercel
+│   ├── i-tried-to-oversell-a-stadium.md  # the write-up
 │   └── openapi.yaml         # the API contract, OpenAPI 3.1
 ├── .github/                 # CI workflow, Dependabot, pull request template
 ├── docker-compose.yml       # the whole stack, in start-up order
@@ -769,6 +772,7 @@ taquilla/
 
 ## Further reading
 
+- [I tried to oversell a stadium](docs/i-tried-to-oversell-a-stadium.md), the write-up of this project: the bug, the fix, the proof under load, and the deploy
 - [PostgreSQL documentation: Concurrency Control](https://www.postgresql.org/docs/current/mvcc.html)
 - Martin Kleppmann, [*Designing Data-Intensive Applications*](https://dataintensive.net/), the chapter on transactions
 - Brandur Leach, [Implementing Stripe-like Idempotency Keys in Postgres](https://brandur.org/idempotency-keys)
