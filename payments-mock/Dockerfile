@@ -8,7 +8,7 @@
 
 # Compiles the TypeScript. Every workspace's package.json is copied so npm ci sees the whole
 # lockfile, but only the mock's dependencies and the root's tools are installed.
-FROM node:26.13.0-alpine3.24 AS build
+FROM node:26.13.1-alpine3.24 AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY api/package.json api/
@@ -21,7 +21,7 @@ COPY payments-mock/src payments-mock/src
 RUN npm run build --workspace=@taquilla/payments-mock
 
 # The production dependencies only.
-FROM node:26.13.0-alpine3.24 AS deps
+FROM node:26.13.1-alpine3.24 AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY api/package.json api/
@@ -30,7 +30,7 @@ COPY web/package.json web/
 RUN --mount=type=cache,target=/root/.npm \
     npm ci --workspace=@taquilla/payments-mock --omit=dev --ignore-scripts --no-audit --no-fund
 
-FROM node:26.13.0-alpine3.24
+FROM node:26.13.1-alpine3.24
 ENV NODE_ENV=production \
     PAYMENTS_PORT=4000
 WORKDIR /app
