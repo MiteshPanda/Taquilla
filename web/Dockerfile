@@ -9,7 +9,7 @@
 # Any warning from Docker's build checks fails the build (the check line above). Each FROM names
 # its base image in full, so Dependabot can keep them up to date.
 
-FROM node:26.13.0-alpine3.24 AS build
+FROM node:26.13.1-alpine3.24 AS build
 WORKDIR /app
 COPY package.json package-lock.json tsconfig.base.json ./
 COPY api/package.json api/
